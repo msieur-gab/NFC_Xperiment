@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NFC Encrypted Content Service</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .section { margin-bottom: 20px; }
+        textarea { width: 100%; height: 150px; }
+        .message-list { 
+            border: 1px solid #ddd; 
+            padding: 10px; 
+            margin-top: 10px; 
+        }
+        .encrypted-message {
+            background-color: #f0f0f0;
+            padding: 10px;
+            margin: 5px 0;
+            word-break: break-all;
+        }
+        .decrypted-message {
+            background-color: #e6f3e6;
+            padding: 10px;
+            margin: 5px 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>NFC Encrypted Content Service</h1>
+
+    <div class="section" id="nfcReadSection">
+        <h2>Read Content with NFC</h2>
+        <button onclick="readNFCTag()">Scan NFC Tag to Read</button>
+        <button onclick="showAllMessages()">Show All Messages</button>
+    </div>
+
+    <div class="section" id="storedMessagesSection">
+        <h2>Stored Messages</h2>
+        <div id="encryptedMessageList" class="message-list">
+            <h3>Encrypted Messages</h3>
+        </div>
+        <div id="decryptedMessageList" class="message-list">
+            <h3>Decrypted Messages</h3>
+        </div>
+    </div>
+
+    <div class="section" id="contentWriteSection">
+        <h2>Write Encrypted Content</h2>
+        <textarea id="contentInput" placeholder="Enter content to encrypt"></textarea>
+        <button onclick="writeEncryptedContent()">Encrypt and Store</button>
+    </div>
+
+    <script>
+        const ownerKey = 'owner-primary-encryption-key';
+        const prepopulatedMessages = [
+            "This is a secret message about project X.",
+            "Emergency contact: Dr. Smith at 555-1234",
+            "Backup encryption key is stored in the safety deposit box."
+        ];
+
+        // Initialize prepopulated messages on page load
+        async function initializePrepopulatedMessages() {
+            // Clear existing storage
+            await localforage.clear();
+            
+            for (let i = 0; i < prepopulatedMessages.length; i++) {
+                const hash = CryptoJS.SHA256(`prepopulated-message-${i}`).toString().substring(0, 12);
+                
+                // Encrypt message
+                const encryptedContent = CryptoJS.AES.encrypt(
+                    prepopulatedMessages[i], 
+                    ownerKey
+                ).toString();
+
+                // Store encrypted content
+                await localforage.setItem(
+                    `encrypted_${hash}`, 
+                    encryptedContent
+                );
+            }
+            
+            // Show messages immediately
+            await showAllMessages();
+        }
+
+        async function showAllMessages() {
+            // Clear previous messages
+            const encryptedList = document.getElementById('encryptedMessageList');
+            const decryptedList = document.getElementById('decryptedMessageList');
+            encryptedList.innerHTML = '<h3>Encrypted Messages</h3>';
+            decryptedList.innerHTML = '<h3>Decrypted Messages</h3>';
+
+            // Get all keys in local storage
+            const keys = await localforage.keys();
+            const encryptedKeys = keys.filter(key => key.startsWith('encrypted_'));
+
+            for (const key of encryptedKeys) {
+                const storedContent = await localforage.getItem(key);
+
+                // Display encrypted message
+                const encryptedDiv = document.createElement('div');
+                encryptedDiv.className = 'encrypted-message';
+                encryptedDiv.textContent = storedContent;
+                encryptedList.appendChild(encryptedDiv);
+
+                // Try to decrypt
+                try {
+                    const decryptedContent = CryptoJS.AES.decrypt(
+                        storedContent, 
+                        ownerKey
+                    ).toString(CryptoJS.enc.Utf8);
+
+                    const decryptedDiv = document.createElement('div');
+                    decryptedDiv.className = 'decrypted-message';
+                    decryptedDiv.textContent = decryptedContent;
+                    decryptedList.appendChild(decryptedDiv);
+                } catch (decryptError) {
+                    console.error('Decryption failed for key:', key);
+                }
+            }
+        }
+
+        async function readNFCTag() {
+            alert('NFC Tag Reading Simulation (Press OK to Decrypt)');
+            await showAllMessages();
+        }
+
+        async function writeEncryptedContent() {
+            const content = document.getElementById('contentInput').value;
+            
+            // Generate a new unique hash
+            const hash = CryptoJS.SHA256(content + Date.now()).toString().substring(0, 12);
+
+            // Encrypt content with owner key
+            const encryptedContent = CryptoJS.AES.encrypt(
+                content, 
+                ownerKey
+            ).toString();
+
+            // Store encrypted content in localForage
+            await localforage.setItem(
+                `encrypted_${hash}`, 
+                encryptedContent
+            );
+
+            alert('Content encrypted and stored successfully');
+            document.getElementById('contentInput').value = '';
+
+            // Refresh message list
+            await showAllMessages();
+        }
+
+        // Initialize prepopulated messages when page loads
+        document.addEventListener('DOMContentLoaded', initializePrepopulatedMessages);
+    </script>
+</body>
+</html>

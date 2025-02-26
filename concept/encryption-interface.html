@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Data Encryption Tool</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f5f5f5;
+            padding: 20px;
+            color: #333;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+
+        h1, h2 {
+            margin-bottom: 20px;
+            color: #2563eb;
+        }
+
+        .tab-container {
+            margin-bottom: 20px;
+        }
+
+        .tab-button {
+            padding: 10px 20px;
+            border: none;
+            background: #e5edff;
+            cursor: pointer;
+            border-radius: 4px;
+            margin-right: 10px;
+            font-weight: 500;
+        }
+
+        .tab-button.active {
+            background: #2563eb;
+            color: white;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        textarea {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+
+        .experience-item,
+        .list-item {
+            border: 1px solid #ddd;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            background: #f8fafc;
+        }
+
+        button {
+            background: #2563eb;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        .remove-btn {
+            background: #dc2626;
+            margin-top: 10px;
+        }
+
+        .remove-btn:hover {
+            background: #b91c1c;
+        }
+
+        .result {
+            background: #f8fafc;
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            font-family: monospace;
+        }
+
+        .alert {
+            background: #fee2e2;
+            border: 1px solid #ef4444;
+            color: #991b1b;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+        }
+
+        .success {
+            background: #dcfce7;
+            border: 1px solid #22c55e;
+            color: #166534;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="card">
+            <h1>NFC Data Encryption Tool</h1>
+            
+            <div class="tab-container">
+                <button class="tab-button active" onclick="switchTab('cv')">Resume Data</button>
+                <button class="tab-button" onclick="switchTab('hd')">Health Data</button>
+            </div>
+
+            <!-- CV Form -->
+            <div id="cv-form">
+                <div class="form-group">
+                    <label>Name:</label>
+                    <input type="text" id="cv-name">
+                </div>
+                
+                <div class="form-group">
+                    <label>Title:</label>
+                    <input type="text" id="cv-title">
+                </div>
+
+                <div class="form-group">
+                    <label>Experience:</label>
+                    <div id="experience-list"></div>
+                    <button onclick="addExperience()">Add Experience</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Skills (comma-separated):</label>
+                    <input type="text" id="cv-skills">
+                </div>
+            </div>
+
+            <!-- Health Data Form -->
+            <div id="hd-form" style="display: none;">
+                <div class="form-group">
+                    <label>Name:</label>
+                    <input type="text" id="hd-name">
+                </div>
+
+                <div class="form-group">
+                    <label>Blood Type:</label>
+                    <input type="text" id="hd-bloodtype">
+                </div>
+
+                <div class="form-group">
+                    <label>Emergency Contact:</label>
+                    <input type="text" id="hd-emergency">
+                </div>
+
+                <div class="form-group">
+                    <label>Allergies:</label>
+                    <div id="allergies-list"></div>
+                    <button onclick="addAllergy()">Add Allergy</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Medications:</label>
+                    <div id="medications-list"></div>
+                    <button onclick="addMedication()">Add Medication</button>
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Encryption Key:</label>
+                <input type="text" id="encryption-key" value="your-secret-key-2024">
+            </div>
+
+            <button onclick="generateEncryptedFiles()">Generate Encrypted Files</button>
+
+            <div id="result" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        let currentTab = 'cv';
+        let experienceCount = 0;
+        let allergyCount = 0;
+        let medicationCount = 0;
+
+        function switchTab(tab) {
+            document.getElementById('cv-form').style.display = tab === 'cv' ? 'block' : 'none';
+            document.getElementById('hd-form').style.display = tab === 'hd' ? 'block' : 'none';
+            currentTab = tab;
+
+            // Update active button
+            document.querySelectorAll('.tab-button').forEach(button => {
+                button.classList.remove('active');
+            });
+            event.target.classList.add('active');
+        }
+
+        function addExperience() {
+            const container = document.createElement('div');
+            container.className = 'experience-item';
+            container.innerHTML = `
+                <div class="form-group">
+                    <label>Role:</label>
+                    <input type="text" id="exp-role-${experienceCount}">
+                </div>
+                <div class="form-group">
+                    <label>Company:</label>
+                    <input type="text" id="exp-company-${experienceCount}">
+                </div>
+                <div class="form-group">
+                    <label>Years:</label>
+                    <input type="text" id="exp-years-${experienceCount}">
+                </div>
+                <button class="remove-btn" onclick="this.parentElement.remove()">Remove</button>
+            `;
+            document.getElementById('experience-list').appendChild(container);
+            experienceCount++;
+        }
+
+        function addAllergy() {
+            const container = document.createElement('div');
+            container.className = 'list-item';
+            container.innerHTML = `
+                <div class="form-group">
+                    <label>Allergy:</label>
+                    <input type="text" id="allergy-${allergyCount}">
+                </div>
+                <button class="remove-btn" onclick="this.parentElement.remove()">Remove</button>
+            `;
+            document.getElementById('allergies-list').appendChild(container);
+            allergyCount++;
+        }
+
+        function addMedication() {
+            const container = document.createElement('div');
+            container.className = 'list-item';
+            container.innerHTML = `
+                <div class="form-group">
+                    <label>Medication:</label>
+                    <input type="text" id="medication-${medicationCount}">
+                </div>
+                <button class="remove-btn" onclick="this.parentElement.remove()">Remove</button>
+            `;
+            document.getElementById('medications-list').appendChild(container);
+            medicationCount++;
+        }
+
+        function collectExperience() {
+            const experience = [];
+            document.querySelectorAll('.experience-item').forEach((item, index) => {
+                experience.push({
+                    role: document.getElementById(`exp-role-${index}`).value,
+                    company: document.getElementById(`exp-company-${index}`).value,
+                    years: document.getElementById(`exp-years-${index}`).value
+                });
+            });
+            return experience;
+        }
+
+        function collectListItems(prefix) {
+            const items = [];
+            document.querySelectorAll(`[id^="${prefix}"]`).forEach(item => {
+                if (item.value) items.push(item.value);
+            });
+            return items;
+        }
+
+        function generateEncryptedFiles() {
+            const key = document.getElementById('encryption-key').value;
+            if (!key) {
+                alert('Please enter an encryption key');
+                return;
+            }
+
+            const salt = CryptoJS.lib.WordArray.random(128/8);
+            let data;
+
+            if (currentTab === 'cv') {
+                data = {
+                    type: 'cv',
+                    content: {
+                        name: document.getElementById('cv-name').value,
+                        title: document.getElementById('cv-title').value,
+                        experience: collectExperience(),
+                        skills: document.getElementById('cv-skills').value.split(',').map(s => s.trim()).filter(s => s)
+                    }
+                };
+            } else {
+                data = {
+                    type: 'hd',
+                    content: {
+                        name: document.getElementById('hd-name').value,
+                        bloodType: document.getElementById('hd-bloodtype').value,
+                        emergencyContact: document.getElementById('hd-emergency').value,
+                        allergies: collectListItems('allergy-'),
+                        medications: collectListItems('medication-')
+                    }
+                };
+            }
+
+            // Encrypt the data
+            const jsonString = JSON.stringify(data);
+            const encrypted = CryptoJS.AES.encrypt(jsonString, key, {
+                salt: salt,
+                iterations: 1000
+            });
+
+            const result = {
+                hash: CryptoJS.SHA256(jsonString).toString(CryptoJS.enc.Hex).substring(0, 12),
+                data: encrypted.toString(),
+                salt: salt.toString(),
+                iv: encrypted.iv.toString()
+            };
+
+            // Display result
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = `=== ${currentTab.toUpperCase()} ===
+Hash (use in URL): ${result.hash}
+Encrypted file content:
+${JSON.stringify(result, null, 2)}
+
+Save this as: /data/${result.hash}.eva
+
+Access URL will be: https://yourservice.com/${currentTab}/${result.hash}`;
+
+            // Create download link
+            const blob = new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `${result.hash}.eva`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        // Add initial items
+        addExperience();
+        addAllergy();
+        addMedication();
+    </script>
+</body>
+</html>

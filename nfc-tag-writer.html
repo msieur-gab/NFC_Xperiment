@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>NFC Tag Writer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
+        .form-group { margin-bottom: 15px; }
+        input, textarea { width: 100%; padding: 8px; }
+    </style>
+</head>
+<body>
+    <h1>NFC Tag Writer</h1>
+    <form id="nfcWriteForm">
+        <div class="form-group">
+            <label>Owner Encryption Key:</label>
+            <input type="text" id="ownerKey" required>
+        </div>
+        <div class="form-group">
+            <label>Readers Public Keys (comma-separated):</label>
+            <textarea id="readerKeys"></textarea>
+        </div>
+        <div class="form-group">
+            <label>Service URL:</label>
+            <input type="url" id="serviceUrl" required>
+        </div>
+        <button type="button" onclick="prepareNFCTag()">Prepare NFC Tag</button>
+    </form>
+
+    <div id="output"></div>
+
+    <script>
+        async function prepareNFCTag() {
+            const ownerKey = document.getElementById('ownerKey').value;
+            const readerKeys = document.getElementById('readerKeys').value
+                .split(',')
+                .map(key => key.trim())
+                .filter(key => key);
+            const serviceUrl = document.getElementById('serviceUrl').value;
+
+            // Generate unique identifier for this data
+            const dataHash = CryptoJS.SHA256(
+                ownerKey + readerKeys.join('') + serviceUrl
+            ).toString().substring(0, 12);
+
+            // Prepare NFC tag payload
+            const nfcPayload = {
+                hash: dataHash,
+                ownerKey: CryptoJS.AES.encrypt(ownerKey, 'system-master-key').toString(),
+                readerKeys: readerKeys.map(key => 
+                    CryptoJS.AES.encrypt(key, 'system-master-key').toString()
+                ),
+                serviceUrl: serviceUrl
+            };
+
+            // Check for NFC support
+            if ('NDEFReader' in window) {
+                try {
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+
+                    // Write to NFC tag
+                    await ndef.write({
+                        records: [{
+                            recordType: "text",
+                            data: JSON.stringify(nfcPayload)
+                        }]
+                    });
+
+                    document.getElementById('output').innerHTML = 
+                        `NFC Tag written successfully. Hash: ${dataHash}`;
+                } catch (error) {
+                    document.getElementById('output').innerHTML = 
+                        `Error writing NFC tag: ${error}`;
+                }
+            } else {
+                document.getElementById('output').innerHTML = 
+                    "NFC not supported on this device";
+            }
+        }
+    </script>
+</body>
+</html>
