@@ -2,56 +2,104 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>NFC Tag Writer</title>
+    <title>NFC Multi-User Tag Writer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; }
-        .form-group { margin-bottom: 15px; }
-        input, textarea { width: 100%; padding: 8px; }
+        body { 
+            font-family: Arial, sans-serif; 
+            max-width: 600px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        input, textarea { 
+            width: 100%; 
+            padding: 8px; 
+        }
+        .reader-list {
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
     </style>
 </head>
 <body>
-    <h1>NFC Tag Writer</h1>
-    <form id="nfcWriteForm">
-        <div class="form-group">
-            <label>Owner Encryption Key:</label>
-            <input type="text" id="ownerKey" required>
-        </div>
-        <div class="form-group">
-            <label>Readers Public Keys (comma-separated):</label>
-            <textarea id="readerKeys"></textarea>
-        </div>
-        <div class="form-group">
-            <label>Service URL:</label>
-            <input type="url" id="serviceUrl" required>
-        </div>
-        <button type="button" onclick="prepareNFCTag()">Prepare NFC Tag</button>
-    </form>
+    <h1>NFC Multi-User Tag Writer</h1>
+    
+    <div class="form-group">
+        <label>Owner Token:</label>
+        <input type="text" id="ownerToken" required>
+    </div>
+
+    <div class="form-group">
+        <h3>Readers</h3>
+        <div id="readersList" class="reader-list"></div>
+        <button onclick="addReader()">Add Reader</button>
+    </div>
+
+    <button onclick="prepareNFCTag()">Prepare NFC Tag</button>
 
     <div id="output"></div>
 
     <script>
-        async function prepareNFCTag() {
-            const ownerKey = document.getElementById('ownerKey').value;
-            const readerKeys = document.getElementById('readerKeys').value
-                .split(',')
-                .map(key => key.trim())
-                .filter(key => key);
-            const serviceUrl = document.getElementById('serviceUrl').value;
+        let readers = [];
 
-            // Generate unique identifier for this data
-            const dataHash = CryptoJS.SHA256(
-                ownerKey + readerKeys.join('') + serviceUrl
-            ).toString().substring(0, 12);
+        function addReader() {
+            const readerId = prompt("Enter Reader ID:");
+            const readerToken = prompt("Enter Reader Token:");
+            
+            if (readerId && readerToken) {
+                readers.push({ id: readerId, token: readerToken });
+                updateReadersList();
+            }
+        }
+
+        function updateReadersList() {
+            const list = document.getElementById('readersList');
+            list.innerHTML = '';
+            
+            readers.forEach((reader, index) => {
+                const readerDiv = document.createElement('div');
+                readerDiv.innerHTML = `
+                    Reader ${index + 1}: 
+                    ID: ${reader.id}, 
+                    Token: ${reader.token}
+                    <button onclick="removeReader(${index})">Remove</button>
+                `;
+                list.appendChild(readerDiv);
+            });
+        }
+
+        function removeReader(index) {
+            readers.splice(index, 1);
+            updateReadersList();
+        }
+
+        async function prepareNFCTag() {
+            const ownerToken = document.getElementById('ownerToken').value;
+
+            if (!ownerToken) {
+                alert('Owner token is required');
+                return;
+            }
 
             // Prepare NFC tag payload
             const nfcPayload = {
-                hash: dataHash,
-                ownerKey: CryptoJS.AES.encrypt(ownerKey, 'system-master-key').toString(),
-                readerKeys: readerKeys.map(key => 
-                    CryptoJS.AES.encrypt(key, 'system-master-key').toString()
-                ),
-                serviceUrl: serviceUrl
+                owner: {
+                    token: CryptoJS.AES.encrypt(
+                        ownerToken, 
+                        'system-master-key'
+                    ).toString()
+                },
+                readers: readers.map(reader => ({
+                    id: reader.id,
+                    token: CryptoJS.AES.encrypt(
+                        reader.token, 
+                        'system-master-key'
+                    ).toString()
+                }))
             };
 
             // Check for NFC support
@@ -69,7 +117,9 @@
                     });
 
                     document.getElementById('output').innerHTML = 
-                        `NFC Tag written successfully. Hash: ${dataHash}`;
+                        `NFC Tag written successfully. 
+                        Owner: ${ownerToken}, 
+                        Readers: ${readers.map(r => r.id).join(', ')}`;
                 } catch (error) {
                     document.getElementById('output').innerHTML = 
                         `Error writing NFC tag: ${error}`;
