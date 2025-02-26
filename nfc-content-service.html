@@ -258,12 +258,12 @@
             const hash = CryptoJS.SHA256(message + Date.now()).toString().substring(0, 12);
 
             // Prepare message data with allowed readers
-            // FIXED: Use reader tokens directly as decryption keys
+            // FIXED: Add all tokens from readers array
             const messageData = {
                 text: message,
                 writerKey: currentNFCKey,
                 allowedReaders: [
-                    currentNFCKey,
+                    currentNFCKey, // Owner can always read their own messages
                     ...(currentNFCData.readers || []).map(reader => reader.token)
                 ]
             };
