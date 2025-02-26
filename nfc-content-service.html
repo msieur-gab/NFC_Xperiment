@@ -301,11 +301,8 @@
                             decoder.decode(message.records[0].data)
                         );
 
-                        // Decrypt owner token
-                        currentNFCKey = CryptoJS.AES.decrypt(
-                            tagData.owner.token, 
-                            'system-master-key'
-                        ).toString(CryptoJS.enc.Utf8);
+                        // Use owner token directly (no decryption needed)
+                        currentNFCKey = tagData.owner.token;
 
                         // Store full NFC tag data for reader access
                         currentNFCData = tagData;
@@ -313,12 +310,19 @@
                         // Update NFC status indicator
                         updateNFCStatus();
 
-                        // Get the selected message key
-                        const selectedKey = localStorage.getItem('selectedMessageKey');
+                        // Attempt to decrypt all messages
+                        showToast('Decrypting messages...');
                         
-                        if (selectedKey) {
-                            // Decrypt specific message
-                            const storedContent = await localforage.getItem(selectedKey);
+                        // Get all encrypted messages
+                        const keys = await localforage.keys();
+                        const encryptedKeys = keys.filter(key => key.startsWith('encrypted_'));
+                        
+                        // Track how many messages were decrypted
+                        let decryptedCount = 0;
+                        
+                        // Try to decrypt each message
+                        for (const key of encryptedKeys) {
+                            const storedContent = await localforage.getItem(key);
                             
                             try {
                                 // Try to decrypt with current key
@@ -334,7 +338,7 @@
 
                                 // Check if current token is allowed to read
                                 if (decryptedMessage.allowedReaders.includes(currentNFCKey)) {
-                                    // Replace the encrypted message with decrypted one
+                                    // Find and update the element for this message
                                     const messageElements = document.querySelectorAll('.encrypted-message');
                                     messageElements.forEach(el => {
                                         if (el.textContent === storedContent) {
@@ -348,16 +352,22 @@
                                             }
                                         }
                                     });
-                                } else {
-                                    showToast('You are not authorized to read this message');
+                                    
+                                    decryptedCount++;
                                 }
-
-                                // Clear the selected key
-                                localStorage.removeItem('selectedMessageKey');
                             } catch (decryptError) {
-                                showToast('Decryption failed');
-                                console.error('Decryption failed:', decryptError);
+                                // Skip failed decryptions
+                                console.log('Could not decrypt message:', key);
                             }
+                        }
+                        
+                        // Clear the selected key in case it exists
+                        localStorage.removeItem('selectedMessageKey');
+                        
+                        if (decryptedCount > 0) {
+                            showToast(`Decrypted ${decryptedCount} message(s)`);
+                        } else {
+                            showToast('No authorized messages found');
                         }
 
                         // Close security modal

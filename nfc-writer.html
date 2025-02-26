@@ -47,6 +47,13 @@
         h1 {
             color: #2563eb;
         }
+        .input-group {
+            display: flex;
+            margin-bottom: 10px;
+        }
+        .input-group button {
+            margin-left: 8px;
+        }
     </style>
 </head>
 <body>
@@ -54,7 +61,10 @@
     
     <div class="form-group">
         <label>Owner Token:</label>
-        <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner" required>
+        <div class="input-group">
+            <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner">
+            <button onclick="generateOwnerToken()">Generate</button>
+        </div>
     </div>
 
     <div class="form-group">
@@ -72,19 +82,38 @@
     <script>
         let readers = [];
 
+        function generateOwnerToken() {
+            document.getElementById('ownerToken').value = generateToken();
+        }
+
         function addReader() {
             const readerId = prompt("Enter Reader ID:");
             if (!readerId) return;
             
-            const readerToken = prompt("Enter Reader Token (or leave empty to generate):");
-            const finalToken = readerToken || generateToken();
+            // Ask if they want to generate or enter a token
+            const generateOrEnter = confirm("Click OK to auto-generate a token, or Cancel to enter manually");
             
-            readers.push({ id: readerId, token: finalToken });
+            let readerToken;
+            if (generateOrEnter) {
+                readerToken = generateToken();
+            } else {
+                readerToken = prompt("Enter Reader Token:");
+                if (!readerToken) return;
+            }
+            
+            readers.push({ id: readerId, token: readerToken });
             updateReadersList();
         }
 
         function generateToken() {
-            return CryptoJS.lib.WordArray.random(16).toString();
+            // Generate a random but readable token
+            const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+            let result = '';
+            for (let i = 0; i < 12; i++) {
+                if (i > 0 && i % 4 === 0) result += '-';
+                result += chars.charAt(Math.floor(Math.random() * chars.length));
+            }
+            return result;
         }
 
         function updateReadersList() {
@@ -119,10 +148,8 @@
             // Create NFC tag payload
             const nfcPayload = {
                 owner: {
-                    token: CryptoJS.AES.encrypt(
-                        ownerToken, 
-                        'system-master-key'
-                    ).toString()
+                    id: "owner",
+                    token: ownerToken // Store owner token directly, just like reader tokens
                 },
                 readers: readers.map(reader => ({
                     id: reader.id,
