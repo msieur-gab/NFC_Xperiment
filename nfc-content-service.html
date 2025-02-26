@@ -98,10 +98,45 @@
             height: 150px;
             margin-bottom: 10px;
         }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #ff3b30;
+            margin-right: 5px;
+        }
+        .status-indicator.active {
+            background-color: #34c759;
+        }
+        .status-bar {
+            display: flex;
+            align-items: center;
+            padding: 5px 10px;
+            background-color: #f8f8f8;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        button {
+            padding: 8px 16px;
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 8px;
+        }
+        button:hover {
+            background-color: #1d4ed8;
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <div class="status-bar">
+            <span class="status-indicator" id="nfcStatus"></span>
+            <span id="statusText">NFC: Not scanned</span>
+        </div>
         <div class="message-list" id="messageList">
             <h2>Encrypted Messages</h2>
             <!-- Encrypted messages will be loaded here -->
@@ -113,6 +148,7 @@
             <h2>Security Check</h2>
             <p>Please scan your NFC security token to decrypt this message.</p>
             <button onclick="scanNFCToken()">Scan NFC Token</button>
+            <button onclick="closeSecurityModal()">Cancel</button>
         </div>
     </div>
 
@@ -130,6 +166,7 @@
     <script>
         let currentNFCKey = null;
         let currentNFCData = null;
+        let pendingWriteRequest = false;
 
         // Initialize on page load
         async function initializeMessages() {
@@ -153,12 +190,25 @@
                 
                 // Add click event to show security modal
                 messageDiv.addEventListener('click', () => {
-                    document.getElementById('securityModal').style.display = 'block';
+                    document.getElementById('securityModal').style.display = 'flex';
                     // Store the clicked message key for later decryption
                     localStorage.setItem('selectedMessageKey', key);
                 });
                 
                 messageList.appendChild(messageDiv);
+            }
+        }
+
+        function updateNFCStatus() {
+            const statusIndicator = document.getElementById('nfcStatus');
+            const statusText = document.getElementById('statusText');
+            
+            if (currentNFCKey) {
+                statusIndicator.classList.add('active');
+                statusText.textContent = 'NFC: Token scanned';
+            } else {
+                statusIndicator.classList.remove('active');
+                statusText.textContent = 'NFC: Not scanned';
             }
         }
 
@@ -174,7 +224,8 @@
         function openWriteModal() {
             if (!currentNFCKey) {
                 showToast('Please scan NFC security token first');
-                document.getElementById('securityModal').style.display = 'block';
+                pendingWriteRequest = true;
+                document.getElementById('securityModal').style.display = 'flex';
                 return;
             }
             document.getElementById('writeModal').style.display = 'block';
@@ -182,6 +233,11 @@
 
         function closeWriteModal() {
             document.getElementById('writeModal').style.display = 'none';
+        }
+
+        function closeSecurityModal() {
+            document.getElementById('securityModal').style.display = 'none';
+            pendingWriteRequest = false;
         }
 
         async function saveMessage() {
@@ -202,17 +258,13 @@
             const hash = CryptoJS.SHA256(message + Date.now()).toString().substring(0, 12);
 
             // Prepare message data with allowed readers
+            // FIXED: Use reader tokens directly as decryption keys
             const messageData = {
                 text: message,
                 writerKey: currentNFCKey,
                 allowedReaders: [
                     currentNFCKey,
-                    ...(currentNFCData.readers || []).map(reader => 
-                        CryptoJS.AES.decrypt(
-                            reader.token, 
-                            'system-master-key'
-                        ).toString(CryptoJS.enc.Utf8)
-                    )
+                    ...(currentNFCData.readers || []).map(reader => reader.token)
                 ]
             };
 
@@ -239,6 +291,7 @@
         async function scanNFCToken() {
             if ('NDEFReader' in window) {
                 try {
+                    showToast('Scanning for NFC token...');
                     const ndef = new NDEFReader();
                     await ndef.scan();
 
@@ -254,8 +307,11 @@
                             'system-master-key'
                         ).toString(CryptoJS.enc.Utf8);
 
-                        // Store full NFC tag data for potential reader access
+                        // Store full NFC tag data for reader access
                         currentNFCData = tagData;
+                        
+                        // Update NFC status indicator
+                        updateNFCStatus();
 
                         // Get the selected message key
                         const selectedKey = localStorage.getItem('selectedMessageKey');
@@ -265,10 +321,16 @@
                             const storedContent = await localforage.getItem(selectedKey);
                             
                             try {
-                                const decryptedMessage = JSON.parse(CryptoJS.AES.decrypt(
+                                // Try to decrypt with current key
+                                const decryptedBytes = CryptoJS.AES.decrypt(
                                     storedContent, 
                                     currentNFCKey
-                                ).toString(CryptoJS.enc.Utf8));
+                                );
+                                
+                                // If decryption is successful, we'll have a valid string
+                                const decryptedMessage = JSON.parse(
+                                    decryptedBytes.toString(CryptoJS.enc.Utf8)
+                                );
 
                                 // Check if current token is allowed to read
                                 if (decryptedMessage.allowedReaders.includes(currentNFCKey)) {
@@ -298,13 +360,15 @@
                             }
                         }
 
-                        // Always check the current context
-                        const writeModal = document.getElementById('writeModal');
-                        if (writeModal.style.display === 'block') {
-                            writeModal.style.display = 'block';
-                        }
-
+                        // Close security modal
                         document.getElementById('securityModal').style.display = 'none';
+                        
+                        // Check if we had a pending write request
+                        if (pendingWriteRequest) {
+                            pendingWriteRequest = false;
+                            openWriteModal();
+                        }
+                        
                         showToast('NFC Token Scanned Successfully');
                     });
 
@@ -313,83 +377,58 @@
                 }
             } else {
                 showToast('NFC not supported on this device');
+                
+                // For testing on non-NFC devices, simulate a successful scan
+                if (confirm("NFC not supported. Simulate successful scan for testing?")) {
+                    simulateNFCScan();
+                }
             }
         }
-            if ('NDEFReader' in window) {
-                try {
-                    const ndef = new NDEFReader();
-                    await ndef.scan();
-
-                    ndef.addEventListener("reading", async ({ message }) => {
-                        const decoder = new TextDecoder();
-                        const tagData = JSON.parse(
-                            decoder.decode(message.records[0].data)
-                        );
-
-                        // Decrypt owner token
-                        currentNFCKey = CryptoJS.AES.decrypt(
-                            tagData.owner.token, 
-                            'system-master-key'
-                        ).toString(CryptoJS.enc.Utf8);
-
-                        // Store full NFC tag data for potential reader access
-                        currentNFCData = tagData;
-
-                        // Get the selected message key
-                        const selectedKey = localStorage.getItem('selectedMessageKey');
-                        
-                        if (selectedKey) {
-                            // Decrypt specific message
-                            const storedContent = await localforage.getItem(selectedKey);
-                            
-                            try {
-                                const decryptedMessage = JSON.parse(CryptoJS.AES.decrypt(
-                                    storedContent, 
-                                    currentNFCKey
-                                ).toString(CryptoJS.enc.Utf8));
-
-                                // Check if current token is allowed to read
-                                if (decryptedMessage.allowedReaders.includes(currentNFCKey)) {
-                                    // Replace the encrypted message with decrypted one
-                                    const messageElements = document.querySelectorAll('.encrypted-message');
-                                    messageElements.forEach(el => {
-                                        if (el.textContent === storedContent) {
-                                            el.textContent = decryptedMessage.text;
-                                            
-                                            // Color based on writer
-                                            if (decryptedMessage.writerKey === currentNFCKey) {
-                                                el.style.backgroundColor = '#e6f3e6'; // Green
-                                            } else {
-                                                el.style.backgroundColor = '#fff3cd'; // Yellow
-                                            }
-                                        }
-                                    });
-                                } else {
-                                    showToast('You are not authorized to read this message');
-                                }
-
-                                // Clear the selected key
-                                localStorage.removeItem('selectedMessageKey');
-                            } catch (decryptError) {
-                                showToast('Decryption failed');
-                                console.error('Decryption failed:', decryptError);
-                            }
-                        }
-
-                        document.getElementById('securityModal').style.display = 'none';
-                        showToast('NFC Token Scanned Successfully');
-                    });
-
-                } catch (error) {
-                    showToast(`NFC Error: ${error}`);
-                }
-            } else {
-                showToast('NFC not supported on this device');
+        
+        // Function to simulate NFC scan for testing on non-NFC devices
+        function simulateNFCScan() {
+            // Simulate the NFC data
+            const mockNFCData = {
+                owner: {
+                    token: CryptoJS.AES.encrypt("test-key-12345", "system-master-key").toString()
+                },
+                readers: [
+                    { id: "reader1", token: "test-reader-token-1" },
+                    { id: "reader2", token: "test-reader-token-2" }
+                ]
+            };
+            
+            // Set the current key
+            currentNFCKey = "test-key-12345";
+            currentNFCData = mockNFCData;
+            
+            // Update status
+            updateNFCStatus();
+            
+            // Get the selected message key
+            const selectedKey = localStorage.getItem('selectedMessageKey');
+            
+            if (selectedKey) {
+                // Handle decryption (simplified for testing)
+                localStorage.removeItem('selectedMessageKey');
+                showToast('Message would be decrypted with simulated key');
             }
-        // }
+            
+            // Close security modal
+            document.getElementById('securityModal').style.display = 'none';
+            
+            // Check if we had a pending write request
+            if (pendingWriteRequest) {
+                pendingWriteRequest = false;
+                openWriteModal();
+            }
+            
+            showToast('Simulated NFC Token Scan Successful');
+        }
 
         // Initialize messages on page load
         initializeMessages();
+        updateNFCStatus();
     </script>
 </body>
 </html>

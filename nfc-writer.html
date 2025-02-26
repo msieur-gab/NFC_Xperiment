@@ -23,6 +23,30 @@
             padding: 10px;
             margin-bottom: 10px;
         }
+        button {
+            padding: 8px 16px;
+            background-color: #2563eb;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        button:hover {
+            background-color: #1d4ed8;
+        }
+        .tag-preview {
+            background-color: #f0f0f0;
+            padding: 10px;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        h1 {
+            color: #2563eb;
+        }
     </style>
 </head>
 <body>
@@ -30,7 +54,7 @@
     
     <div class="form-group">
         <label>Owner Token:</label>
-        <input type="text" id="ownerToken" required>
+        <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner" required>
     </div>
 
     <div class="form-group">
@@ -40,20 +64,27 @@
     </div>
 
     <button onclick="prepareNFCTag()">Prepare NFC Tag</button>
+    <button onclick="showTagPreview()">Show Tag Preview</button>
 
     <div id="output"></div>
+    <div id="tagPreview" class="tag-preview" style="display: none;"></div>
 
     <script>
         let readers = [];
 
         function addReader() {
             const readerId = prompt("Enter Reader ID:");
-            const readerToken = prompt("Enter Reader Token:");
+            if (!readerId) return;
             
-            if (readerId && readerToken) {
-                readers.push({ id: readerId, token: readerToken });
-                updateReadersList();
-            }
+            const readerToken = prompt("Enter Reader Token (or leave empty to generate):");
+            const finalToken = readerToken || generateToken();
+            
+            readers.push({ id: readerId, token: finalToken });
+            updateReadersList();
+        }
+
+        function generateToken() {
+            return CryptoJS.lib.WordArray.random(16).toString();
         }
 
         function updateReadersList() {
@@ -77,7 +108,7 @@
             updateReadersList();
         }
 
-        async function prepareNFCTag() {
+        function showTagPreview() {
             const ownerToken = document.getElementById('ownerToken').value;
 
             if (!ownerToken) {
@@ -85,7 +116,7 @@
                 return;
             }
 
-            // Prepare NFC tag payload
+            // Create NFC tag payload
             const nfcPayload = {
                 owner: {
                     token: CryptoJS.AES.encrypt(
@@ -95,10 +126,34 @@
                 },
                 readers: readers.map(reader => ({
                     id: reader.id,
+                    token: reader.token // Store tokens directly - they'll be used as decryption keys
+                }))
+            };
+
+            const previewElement = document.getElementById('tagPreview');
+            previewElement.textContent = JSON.stringify(nfcPayload, null, 2);
+            previewElement.style.display = 'block';
+        }
+
+        async function prepareNFCTag() {
+            const ownerToken = document.getElementById('ownerToken').value;
+
+            if (!ownerToken) {
+                alert('Owner token is required');
+                return;
+            }
+
+            // Create NFC tag payload
+            const nfcPayload = {
+                owner: {
                     token: CryptoJS.AES.encrypt(
-                        reader.token, 
+                        ownerToken, 
                         'system-master-key'
                     ).toString()
+                },
+                readers: readers.map(reader => ({
+                    id: reader.id,
+                    token: reader.token // Store tokens directly - they'll be used as decryption keys
                 }))
             };
 
@@ -117,16 +172,17 @@
                     });
 
                     document.getElementById('output').innerHTML = 
-                        `NFC Tag written successfully. 
-                        Owner: ${ownerToken}, 
-                        Readers: ${readers.map(r => r.id).join(', ')}`;
+                        `<p>NFC Tag written successfully.</p>
+                        <p>Owner: ${ownerToken}</p>
+                        <p>Readers: ${readers.map(r => r.id).join(', ')}</p>`;
                 } catch (error) {
                     document.getElementById('output').innerHTML = 
                         `Error writing NFC tag: ${error}`;
                 }
             } else {
                 document.getElementById('output').innerHTML = 
-                    "NFC not supported on this device";
+                    "NFC not supported on this device. Here's the tag data that would be written:";
+                showTagPreview();
             }
         }
     </script>
