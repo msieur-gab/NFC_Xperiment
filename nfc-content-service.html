@@ -93,8 +93,9 @@
                             document.getElementById('writeContent').style.display = 'none';
                             document.getElementById('readContent').style.display = 'block';
                         } else {
+                            await displayMessages();
                             document.getElementById('writeContent').style.display = 'block';
-                            document.getElementById('readContent').style.display = 'none';
+                            document.getElementById('readContent').style.display = 'block';
                         }
                     });
 
