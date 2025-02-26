@@ -1,0 +1,778 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Secure Messages</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --gray: #9ca3af;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f4;
+            color: var(--dark);
+            padding: 0;
+            margin: 0;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 100%;
+        }
+        
+        .header {
+            background-color: var(--primary);
+            color: white;
+            padding: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .status-badge {
+            display: flex;
+            align-items: center;
+            font-size: 0.875rem;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background-color: rgba(255,255,255,0.2);
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--danger);
+            margin-right: 6px;
+        }
+        
+        .status-indicator.active {
+            background-color: var(--success);
+        }
+        
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            padding-bottom: 80px;
+        }
+        
+        .message-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .message-card {
+            background-color: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            word-break: break-word;
+            position: relative;
+            transition: transform 0.2s;
+        }
+        
+        .message-card:active {
+            transform: scale(0.98);
+        }
+        
+        .message-card.self {
+            background-color: #ecfdf5;
+            border-left: 4px solid var(--success);
+        }
+        
+        .message-card.other {
+            background-color: #fffbeb;
+            border-left: 4px solid var(--warning);
+        }
+        
+        .message-card.encrypted {
+            background-color: #f3f4f6;
+            border-left: 4px solid var(--gray);
+            font-family: monospace;
+            font-size: 0.875rem;
+            overflow: hidden;
+            max-height: 120px;
+            position: relative;
+        }
+        
+        .message-card.encrypted::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: linear-gradient(transparent, #f3f4f6);
+        }
+        
+        .message-card .lock-icon {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 1.25rem;
+            color: var(--gray);
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--gray);
+        }
+        
+        .empty-state p {
+            margin-top: 10px;
+            font-size: 0.875rem;
+        }
+        
+        .fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: none;
+            cursor: pointer;
+            z-index: 100;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        
+        .fab:active {
+            transform: scale(0.95);
+            background-color: var(--primary-dark);
+        }
+        
+        .bottom-sheet {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: white;
+            border-radius: 16px 16px 0 0;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-out;
+            z-index: 1000;
+            padding: 20px;
+            box-shadow: 0 -4px 16px rgba(0,0,0,0.1);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .bottom-sheet.active {
+            transform: translateY(0);
+        }
+        
+        .sheet-handle {
+            width: 40px;
+            height: 4px;
+            border-radius: 2px;
+            background-color: #e5e7eb;
+            margin: 0 auto 16px;
+        }
+        
+        .sheet-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        
+        textarea {
+            width: 100%;
+            min-height: 120px;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: inherit;
+            resize: none;
+            margin-bottom: 16px;
+        }
+        
+        textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .button {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .button-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .button-primary:active {
+            background-color: var(--primary-dark);
+        }
+        
+        .button-secondary {
+            background-color: #e5e7eb;
+            color: var(--dark);
+        }
+        
+        .button-secondary:active {
+            background-color: #d1d5db;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .button-group .button {
+            flex: 1;
+        }
+        
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 900;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        
+        .overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--dark);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            text-align: center;
+            max-width: 90%;
+        }
+        
+        .toast.active {
+            opacity: 1;
+        }
+        
+        .nfc-animation {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .nfc-animation svg {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 16px;
+        }
+        
+        .pulse {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: rgba(37, 99, 235, 0.1);
+            position: absolute;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(0.5);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <h1>Secure Messages</h1>
+            <div class="status-badge">
+                <span class="status-indicator" id="nfcStatus"></span>
+                <span id="statusText">Tap to scan NFC</span>
+            </div>
+        </header>
+        
+        <main class="content">
+            <div class="message-list" id="messageList">
+                <!-- Messages will be loaded here -->
+            </div>
+        </main>
+        
+        <button class="fab" id="writeButton">+</button>
+    </div>
+    
+    <div class="overlay" id="overlay"></div>
+    
+    <div class="bottom-sheet" id="writeSheet">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">New Message</h2>
+        <textarea id="messageInput" placeholder="Type your message..."></textarea>
+        <div class="button-group">
+            <button class="button button-secondary" id="cancelWriteButton">Cancel</button>
+            <button class="button button-primary" id="saveMessageButton">Save</button>
+        </div>
+    </div>
+    
+    <div class="bottom-sheet" id="nfcSheet">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">Scan NFC Token</h2>
+        <div class="nfc-animation">
+            <div class="pulse"></div>
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9.5 14.5C9.5 15.33 10.17 16 11 16C11.83 16 12.5 15.33 12.5 14.5C12.5 13.67 11.83 13 11 13C10.17 13 9.5 13.67 9.5 14.5Z" fill="#2563EB"/>
+                <path d="M8.31 17.5C7.86 16.93 7.59 16.22 7.59 15.5C7.59 13.74 9.07 12.35 10.81 12.5C12.35 12.65 13.59 14.02 13.5 15.56C13.47 16.16 13.27 16.71 12.94 17.17M16.56 18.73C15.3 16.93 13.22 15.69 10.94 15.69C8.66 15.69 6.58 16.93 5.32 18.73M19.77 20.03C18.73 17.21 15.41 15.12 11.36 15.12C7.31 15.12 4 17.21 2.95 20.03" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M22 8.67C22 10.33 17.52 11.69 12 11.69C6.48 11.69 2 10.33 2 8.67C2 7.01 6.48 5.66 12 5.66C17.52 5.66 22 7.01 22 8.67Z" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 11.69V15.5" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M22 8.67C22 7.01 17.52 5.66 12 5.66C6.48 5.66 2 7.01 2 8.67C2 10.33 6.48 11.69 12 11.69C17.52 11.69 22 10.33 22 8.67Z" fill="#E6EFFF"/>
+            </svg>
+            <p>Tap your NFC token to the back of your device</p>
+        </div>
+        <button class="button button-secondary" id="cancelNfcButton">Cancel</button>
+    </div>
+    
+    <div class="toast" id="toast"></div>
+    
+    <script>
+        // DOM Elements
+        const nfcStatus = document.getElementById('nfcStatus');
+        const statusText = document.getElementById('statusText');
+        const messageList = document.getElementById('messageList');
+        const writeButton = document.getElementById('writeButton');
+        const writeSheet = document.getElementById('writeSheet');
+        const nfcSheet = document.getElementById('nfcSheet');
+        const overlay = document.getElementById('overlay');
+        const messageInput = document.getElementById('messageInput');
+        const saveMessageButton = document.getElementById('saveMessageButton');
+        const cancelWriteButton = document.getElementById('cancelWriteButton');
+        const cancelNfcButton = document.getElementById('cancelNfcButton');
+        const toast = document.getElementById('toast');
+        
+        // State
+        let currentNFCKey = null;
+        let currentNFCData = null;
+        let pendingWriteRequest = false;
+        
+        // Initialize on page load
+        async function initializeMessages() {
+            messageList.innerHTML = '';
+            
+            const keys = await localforage.keys();
+            const encryptedKeys = keys.filter(key => key.startsWith('encrypted_'));
+            
+            if (encryptedKeys.length === 0) {
+                messageList.innerHTML = `
+                    <div class="empty-state">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M17 8H18C19.1046 8 20 8.89543 20 10V19C20 20.1046 19.1046 21 18 21H6C4.89543 21 4 20.1046 4 19V10C4 8.89543 4.89543 8 6 8H7" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round"/>
+                            <path d="M16 8V6C16 4.34315 14.6569 3 13 3H11C9.34315 3 8 4.34315 8 6V8" stroke="#9CA3AF" stroke-width="1.5"/>
+                            <path d="M12 15C12.5523 15 13 14.5523 13 14C13 13.4477 12.5523 13 12 13C11.4477 13 11 13.4477 11 14C11 14.5523 11.4477 15 12 15Z" fill="#9CA3AF"/>
+                            <path d="M12 18V15" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round"/>
+                        </svg>
+                        <p>No messages yet. Tap + to create one.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            for (const key of encryptedKeys) {
+                const storedContent = await localforage.getItem(key);
+                
+                const messageDiv = document.createElement('div');
+                messageDiv.className = 'message-card encrypted';
+                messageDiv.setAttribute('data-key', key);
+                
+                // Lock icon
+                const lockIcon = document.createElement('span');
+                lockIcon.className = 'lock-icon';
+                lockIcon.innerHTML = '🔒';
+                messageDiv.appendChild(lockIcon);
+                
+                try {
+                    const messageInfo = JSON.parse(storedContent);
+                    messageDiv.textContent = messageInfo.encryptedText;
+                    
+                    // Store metadata with message element
+                    messageDiv.setAttribute('data-encrypted', 'true');
+                    messageDiv.setAttribute('data-writer', messageInfo.writerKey);
+                    messageDiv.setAttribute('data-readers', JSON.stringify(messageInfo.allowedReaders));
+                } catch (e) {
+                    // Legacy format handling
+                    messageDiv.textContent = storedContent;
+                }
+                
+                // Add click event to show NFC sheet
+                messageDiv.addEventListener('click', () => {
+                    showNfcSheet();
+                });
+                
+                messageList.appendChild(messageDiv);
+            }
+        }
+        
+        function updateNFCStatus() {
+            if (currentNFCKey) {
+                nfcStatus.classList.add('active');
+                statusText.textContent = 'NFC Active';
+            } else {
+                nfcStatus.classList.remove('active');
+                statusText.textContent = 'Tap to scan NFC';
+            }
+        }
+        
+        function showToast(message) {
+            toast.textContent = message;
+            toast.classList.add('active');
+            
+            setTimeout(() => {
+                toast.classList.remove('active');
+            }, 3000);
+        }
+        
+        function showWriteSheet() {
+            if (!currentNFCKey) {
+                showToast('Please scan NFC token first');
+                pendingWriteRequest = true;
+                showNfcSheet();
+                return;
+            }
+            
+            writeSheet.classList.add('active');
+            overlay.classList.add('active');
+            setTimeout(() => messageInput.focus(), 300);
+        }
+        
+        function hideWriteSheet() {
+            writeSheet.classList.remove('active');
+            overlay.classList.remove('active');
+            messageInput.value = '';
+        }
+        
+        function showNfcSheet() {
+            nfcSheet.classList.add('active');
+            overlay.classList.add('active');
+            scanNFCToken();
+        }
+        
+        function hideNfcSheet() {
+            nfcSheet.classList.remove('active');
+            overlay.classList.remove('active');
+            pendingWriteRequest = false;
+        }
+        
+        async function saveMessage() {
+            const message = messageInput.value.trim();
+            
+            if (!message) {
+                showToast('Message cannot be empty');
+                return;
+            }
+            
+            if (!currentNFCData) {
+                showToast('Please scan NFC token first');
+                return;
+            }
+            
+            // Show loading state
+            saveMessageButton.textContent = 'Saving...';
+            saveMessageButton.disabled = true;
+            
+            try {
+                // Generate unique hash for message ID
+                const hash = CryptoJS.SHA256(message + Date.now()).toString().substring(0, 12);
+                
+                // Get list of allowed readers
+                const allowedReaders = [
+                    currentNFCKey,
+                    ...(currentNFCData.readers || []).map(reader => reader.token)
+                ];
+                
+                // Encrypt message with the owner's key
+                const encryptedText = CryptoJS.AES.encrypt(message, currentNFCKey).toString();
+                
+                // Store message metadata and encrypted content
+                const messageData = {
+                    encryptedText: encryptedText,
+                    writerKey: currentNFCKey,
+                    allowedReaders: allowedReaders
+                };
+                
+                // Store message
+                await localforage.setItem(`encrypted_${hash}`, JSON.stringify(messageData));
+                
+                hideWriteSheet();
+                showToast('Message saved');
+                
+                // Refresh message list
+                await initializeMessages();
+                
+                // Try to decrypt messages for the current user
+                if (currentNFCKey) {
+                    await decryptAccessibleMessages();
+                }
+            } catch (error) {
+                console.error('Error saving message:', error);
+                showToast('Error saving message');
+            } finally {
+                // Reset button state
+                saveMessageButton.textContent = 'Save';
+                saveMessageButton.disabled = false;
+            }
+        }
+        
+        async function scanNFCToken() {
+            if ('NDEFReader' in window) {
+                try {
+                    showToast('Scanning for NFC token...');
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+                    
+                    ndef.addEventListener("reading", async ({ message }) => {
+                        const decoder = new TextDecoder();
+                        const tagData = JSON.parse(
+                            decoder.decode(message.records[0].data)
+                        );
+                        
+                        // Store NFC tag data
+                        currentNFCKey = tagData.owner.token;
+                        currentNFCData = tagData;
+                        
+                        // Update NFC status indicator
+                        updateNFCStatus();
+                        
+                        // Try to decrypt all accessible messages
+                        await decryptAccessibleMessages();
+                        
+                        // Close NFC sheet
+                        hideNfcSheet();
+                        
+                        // Check if we had a pending write request
+                        if (pendingWriteRequest) {
+                            pendingWriteRequest = false;
+                            showWriteSheet();
+                        }
+                        
+                        showToast('NFC Token Scanned Successfully');
+                    });
+                    
+                } catch (error) {
+                    showToast(`NFC Error: ${error}`);
+                    hideNfcSheet();
+                }
+            } else {
+                showToast('NFC not supported on this device');
+                
+                // For testing on non-NFC devices, simulate a successful scan
+                if (confirm("NFC not supported. Simulate successful scan for testing?")) {
+                    simulateNFCScan();
+                } else {
+                    hideNfcSheet();
+                }
+            }
+        }
+        
+        async function decryptAccessibleMessages() {
+            if (!currentNFCKey) {
+                return;
+            }
+            
+            const messageElements = document.querySelectorAll('.message-card.encrypted');
+            let decryptedCount = 0;
+            
+            for (const element of messageElements) {
+                try {
+                    // For messages in the new format
+                    if (element.getAttribute('data-encrypted') === 'true') {
+                        const allowedReaders = JSON.parse(element.getAttribute('data-readers') || '[]');
+                        const writerKey = element.getAttribute('data-writer');
+                        const encryptedText = element.textContent.replace('🔒', '').trim();
+                        
+                        // Check if current user is authorized to read
+                        if (allowedReaders.includes(currentNFCKey)) {
+                            // Attempt to decrypt with writer's key
+                            try {
+                                const decryptedText = CryptoJS.AES.decrypt(
+                                    encryptedText, 
+                                    writerKey
+                                ).toString(CryptoJS.enc.Utf8);
+                                
+                                // Remove encrypted class and lock icon
+                                element.classList.remove('encrypted');
+                                const lockIcon = element.querySelector('.lock-icon');
+                                if (lockIcon) lockIcon.remove();
+                                
+                                // Display decrypted message
+                                element.textContent = decryptedText;
+                                
+                                // Add appropriate class based on writer
+                                if (writerKey === currentNFCKey) {
+                                    element.classList.add('self');
+                                } else {
+                                    element.classList.add('other');
+                                }
+                                
+                                decryptedCount++;
+                            } catch (decryptError) {
+                                console.error('Decryption error:', decryptError);
+                            }
+                        }
+                    } 
+                    // For legacy format messages
+                    else {
+                        const key = element.getAttribute('data-key');
+                        if (key) {
+                            const storedContent = await localforage.getItem(key);
+                            
+                            try {
+                                // Try to decrypt with current key
+                                const decryptedBytes = CryptoJS.AES.decrypt(storedContent, currentNFCKey);
+                                const decryptedMessage = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+                                
+                                // Check if token is authorized
+                                if (decryptedMessage.allowedReaders.includes(currentNFCKey)) {
+                                    // Remove encrypted class and lock icon
+                                    element.classList.remove('encrypted');
+                                    const lockIcon = element.querySelector('.lock-icon');
+                                    if (lockIcon) lockIcon.remove();
+                                    
+                                    element.textContent = decryptedMessage.text;
+                                    
+                                    if (decryptedMessage.writerKey === currentNFCKey) {
+                                        element.classList.add('self');
+                                    } else {
+                                        element.classList.add('other');
+                                    }
+                                    
+                                    decryptedCount++;
+                                }
+                            } catch (e) {
+                                // Skip failed decryptions
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error processing message:', error);
+                }
+            }
+            
+            if (decryptedCount > 0) {
+                showToast(`Decrypted ${decryptedCount} message(s)`);
+            }
+        }
+        
+        // Function to simulate NFC scan for testing on non-NFC devices
+        function simulateNFCScan() {
+            // Simulate the NFC data
+            const mockNFCData = {
+                owner: {
+                    id: "owner",
+                    token: "TEST-ABCD-1234"
+                },
+                readers: [
+                    { id: "reader1", token: "TEST-WXYZ-5678" },
+                    { id: "reader2", token: "TEST-MNOP-9012" }
+                ]
+            };
+            
+            // Set the current key
+            currentNFCKey = mockNFCData.owner.token;
+            currentNFCData = mockNFCData;
+            
+            // Update status
+            updateNFCStatus();
+            
+            // Decrypt messages
+            decryptAccessibleMessages();
+            
+            // Close NFC sheet
+            hideNfcSheet();
+            
+            // Check if we had a pending write request
+            if (pendingWriteRequest) {
+                pendingWriteRequest = false;
+                showWriteSheet();
+            }
+            
+            showToast('Simulated NFC Token Scan Successful');
+        }
+        
+        // Event listeners
+        writeButton.addEventListener('click', () => showWriteSheet());
+        cancelWriteButton.addEventListener('click', () => hideWriteSheet());
+        saveMessageButton.addEventListener('click', () => saveMessage());
+        cancelNfcButton.addEventListener('click', () => hideNfcSheet());
+        statusText.addEventListener('click', () => showNfcSheet());
+        
+        // Handle clicking outside the sheet to close it
+        overlay.addEventListener('click', () => {
+            hideWriteSheet();
+            hideNfcSheet();
+        });
+        
+        // Initialize
+        initializeMessages();
+        updateNFCStatus();
+    </script>
+</body>
+</html>
