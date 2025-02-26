@@ -129,18 +129,13 @@
         button:hover {
             background-color: #1d4ed8;
         }
-        input {
-            padding: 8px;
-            margin-bottom: 10px;
-            width: 100%;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="status-bar">
             <span class="status-indicator" id="nfcStatus"></span>
-            <span id="statusText">Authentication: None</span>
+            <span id="statusText">NFC: Not scanned</span>
         </div>
         <div class="message-list" id="messageList">
             <h2>Encrypted Messages</h2>
@@ -150,13 +145,9 @@
 
     <div id="securityModal" class="modal" style="display:none;">
         <div class="modal-content">
-            <h2>Security Authentication</h2>
-            <p>Please enter your private key or scan your NFC tag:</p>
-            <input type="text" id="privateKeyInput" placeholder="Your private key">
-            <button onclick="authenticateWithKey()">Authenticate</button>
-            <hr style="margin: 15px 0;">
-            <p>Or scan your NFC tag:</p>
-            <button onclick="scanNFCTag()">Scan NFC Tag</button>
+            <h2>Security Check</h2>
+            <p>Please scan your NFC security token to decrypt this message.</p>
+            <button onclick="scanNFCToken()">Scan NFC Token</button>
             <button onclick="closeSecurityModal()">Cancel</button>
         </div>
     </div>
@@ -173,11 +164,9 @@
     <div id="toast" class="toast"></div>
 
     <script>
-        let currentPrivateKey = null;
-        let currentPublicId = null;
+        let currentNFCKey = null;
         let currentNFCData = null;
         let pendingWriteRequest = false;
-        let pendingMessageKey = null;
 
         // Initialize on page load
         async function initializeMessages() {
@@ -197,30 +186,29 @@
                 
                 const messageDiv = document.createElement('div');
                 messageDiv.className = 'encrypted-message';
-                messageDiv.textContent = 'Encrypted message - click to decrypt';
-                messageDiv.dataset.content = storedContent;
+                messageDiv.textContent = storedContent;
                 
                 // Add click event to show security modal
                 messageDiv.addEventListener('click', () => {
                     document.getElementById('securityModal').style.display = 'flex';
-                    // Store the clicked message content for later decryption
-                    pendingMessageKey = key;
+                    // Store the clicked message key for later decryption
+                    localStorage.setItem('selectedMessageKey', key);
                 });
                 
                 messageList.appendChild(messageDiv);
             }
         }
 
-        function updateAuthStatus() {
+        function updateNFCStatus() {
             const statusIndicator = document.getElementById('nfcStatus');
             const statusText = document.getElementById('statusText');
             
-            if (currentPrivateKey) {
+            if (currentNFCKey) {
                 statusIndicator.classList.add('active');
-                statusText.textContent = `Authenticated as: ${currentPublicId}`;
+                statusText.textContent = 'NFC: Token scanned';
             } else {
                 statusIndicator.classList.remove('active');
-                statusText.textContent = 'Authentication: None';
+                statusText.textContent = 'NFC: Not scanned';
             }
         }
 
@@ -233,38 +221,9 @@
             }, 3000);
         }
 
-        function authenticateWithKey() {
-            const privateKey = document.getElementById('privateKeyInput').value.trim();
-            
-            if (!privateKey) {
-                showToast('Private key cannot be empty');
-                return;
-            }
-            
-            // Derive public ID from private key
-            currentPrivateKey = privateKey;
-            currentPublicId = CryptoJS.SHA256(privateKey).toString().substring(0, 16);
-            
-            updateAuthStatus();
-            closeSecurityModal();
-            showToast('Authentication successful');
-            
-            // If there was a pending message to decrypt
-            if (pendingMessageKey) {
-                decryptMessage(pendingMessageKey);
-                pendingMessageKey = null;
-            }
-            
-            // If there was a pending write request
-            if (pendingWriteRequest) {
-                pendingWriteRequest = false;
-                openWriteModal();
-            }
-        }
-
         function openWriteModal() {
-            if (!currentPrivateKey) {
-                showToast('Please authenticate first');
+            if (!currentNFCKey) {
+                showToast('Please scan NFC security token first');
                 pendingWriteRequest = true;
                 document.getElementById('securityModal').style.display = 'flex';
                 return;
@@ -278,83 +237,7 @@
 
         function closeSecurityModal() {
             document.getElementById('securityModal').style.display = 'none';
-            document.getElementById('privateKeyInput').value = '';
-        }
-
-        async function decryptMessage(messageKey) {
-            if (!currentPrivateKey) {
-                showToast('Authentication required');
-                return;
-            }
-            
-            try {
-                const storedContent = await localforage.getItem(messageKey);
-                const messageData = JSON.parse(storedContent);
-                
-                // Try to decrypt with my private key
-                if (messageData.targetPublicId === currentPublicId) {
-                    // I'm the direct recipient
-                    const decryptedText = CryptoJS.AES.decrypt(
-                        messageData.encryptedContent, 
-                        currentPrivateKey
-                    ).toString(CryptoJS.enc.Utf8);
-                    
-                    // Update UI
-                    updateDecryptedMessageUI(messageKey, decryptedText, true);
-                    
-                } else if (currentNFCData) {
-                    // Check if I'm a reader with session key
-                    const myReader = currentNFCData.readers.find(
-                        r => r.publicId === currentPublicId
-                    );
-                    
-                    if (myReader && messageData.sharedKeys[currentPublicId]) {
-                        // I'm a reader with access
-                        const sessionKey = myReader.sessionKey;
-                        const messageKey = messageData.sharedKeys[currentPublicId];
-                        
-                        // Decrypt the message key with my session key
-                        const decryptionKey = CryptoJS.AES.decrypt(
-                            messageKey,
-                            sessionKey
-                        ).toString(CryptoJS.enc.Utf8);
-                        
-                        // Decrypt the message with the decryption key
-                        const decryptedText = CryptoJS.AES.decrypt(
-                            messageData.encryptedContent, 
-                            decryptionKey
-                        ).toString(CryptoJS.enc.Utf8);
-                        
-                        // Update UI
-                        updateDecryptedMessageUI(messageKey, decryptedText, false);
-                    } else {
-                        showToast('You do not have permission to read this message');
-                    }
-                } else {
-                    showToast('You do not have permission to read this message');
-                }
-                
-            } catch (error) {
-                console.error('Decryption error:', error);
-                showToast('Failed to decrypt message');
-            }
-        }
-        
-        function updateDecryptedMessageUI(messageKey, decryptedText, isOwner) {
-            // Find the message element
-            const messageElements = document.querySelectorAll('.encrypted-message');
-            messageElements.forEach(el => {
-                if (el.dataset.content === messageKey) {
-                    el.textContent = decryptedText;
-                    
-                    // Color based on relationship
-                    if (isOwner) {
-                        el.style.backgroundColor = '#e6f3e6'; // Green for owner
-                    } else {
-                        el.style.backgroundColor = '#fff3cd'; // Yellow for reader
-                    }
-                }
-            });
+            pendingWriteRequest = false;
         }
 
         async function saveMessage() {
@@ -366,49 +249,35 @@
                 return;
             }
 
-            if (!currentPrivateKey) {
-                showToast('Please authenticate first');
+            if (!currentNFCData) {
+                showToast('Please scan NFC security token first');
                 return;
             }
 
-            // Generate unique message ID
-            const messageId = CryptoJS.SHA256(message + Date.now()).toString().substring(0, 12);
-            
-            // Generate a random encryption key for this message
-            const messageEncryptionKey = CryptoJS.lib.WordArray.random(16).toString();
-            
-            // Prepare shared keys for readers - empty for now
-            const sharedKeys = {};
-            
-            // If we have NFC data with readers, encrypt for them too
-            if (currentNFCData && currentNFCData.readers) {
-                currentNFCData.readers.forEach(reader => {
-                    // Encrypt the message encryption key with the reader's session key
-                    sharedKeys[reader.publicId] = CryptoJS.AES.encrypt(
-                        messageEncryptionKey,
-                        reader.sessionKey
-                    ).toString();
-                });
-            }
-            
-            // Encrypt the message content with the message encryption key
-            const encryptedContent = CryptoJS.AES.encrypt(
-                message, 
-                messageEncryptionKey
-            ).toString();
+            // Generate unique hash
+            const hash = CryptoJS.SHA256(message + Date.now()).toString().substring(0, 12);
 
-            // Prepare the message structure
+            // Prepare message data with allowed readers
+            // FIXED: Use reader tokens directly as decryption keys
             const messageData = {
-                targetPublicId: currentPublicId,
-                encryptedContent: encryptedContent,
-                sharedKeys: sharedKeys,
-                timestamp: Date.now()
+                text: message,
+                writerKey: currentNFCKey,
+                allowedReaders: [
+                    currentNFCKey,
+                    ...(currentNFCData.readers || []).map(reader => reader.token)
+                ]
             };
 
-            // Store the message
+            // Encrypt with writer's key
+            const encryptedMessage = CryptoJS.AES.encrypt(
+                JSON.stringify(messageData), 
+                currentNFCKey
+            ).toString();
+
+            // Store encrypted message
             await localforage.setItem(
-                `encrypted_${messageId}`, 
-                JSON.stringify(messageData)
+                `encrypted_${hash}`, 
+                encryptedMessage
             );
 
             messageInput.value = '';
@@ -419,10 +288,10 @@
             await initializeMessages();
         }
 
-        async function scanNFCTag() {
+        async function scanNFCToken() {
             if ('NDEFReader' in window) {
                 try {
-                    showToast('Scanning for NFC tag...');
+                    showToast('Scanning for NFC token...');
                     const ndef = new NDEFReader();
                     await ndef.scan();
 
@@ -432,52 +301,75 @@
                             decoder.decode(message.records[0].data)
                         );
 
-                        // Store NFC data
+                        // Decrypt owner token
+                        currentNFCKey = CryptoJS.AES.decrypt(
+                            tagData.owner.token, 
+                            'system-master-key'
+                        ).toString(CryptoJS.enc.Utf8);
+
+                        // Store full NFC tag data for reader access
                         currentNFCData = tagData;
                         
-                        // Check if I'm the owner
-                        const privateKey = document.getElementById('privateKeyInput').value.trim();
-                        if (privateKey) {
-                            // Derive public ID from private key
-                            const publicId = CryptoJS.SHA256(privateKey).toString().substring(0, 16);
+                        // Update NFC status indicator
+                        updateNFCStatus();
+
+                        // Get the selected message key
+                        const selectedKey = localStorage.getItem('selectedMessageKey');
+                        
+                        if (selectedKey) {
+                            // Decrypt specific message
+                            const storedContent = await localforage.getItem(selectedKey);
                             
-                            // If I'm the owner of this tag
-                            if (publicId === tagData.owner.publicId) {
-                                currentPrivateKey = privateKey;
-                                currentPublicId = publicId;
-                                updateAuthStatus();
-                                showToast('Authenticated as tag owner');
+                            try {
+                                // Try to decrypt with current key
+                                const decryptedBytes = CryptoJS.AES.decrypt(
+                                    storedContent, 
+                                    currentNFCKey
+                                );
                                 
-                                // Handle pending operations
-                                handlePendingOperations();
-                                return;
-                            }
-                        }
-                        
-                        // Check if I'm a reader
-                        if (tagData.readers) {
-                            // Ask for private key to identify as a reader
-                            const privateKey = document.getElementById('privateKeyInput').value.trim();
-                            if (privateKey) {
-                                const publicId = CryptoJS.SHA256(privateKey).toString().substring(0, 16);
-                                
-                                // Check if this publicId is in the readers list
-                                const myReaderInfo = tagData.readers.find(r => r.publicId === publicId);
-                                
-                                if (myReaderInfo) {
-                                    currentPrivateKey = privateKey;
-                                    currentPublicId = publicId;
-                                    updateAuthStatus();
-                                    showToast('Authenticated as reader');
-                                    
-                                    // Handle pending operations
-                                    handlePendingOperations();
-                                    return;
+                                // If decryption is successful, we'll have a valid string
+                                const decryptedMessage = JSON.parse(
+                                    decryptedBytes.toString(CryptoJS.enc.Utf8)
+                                );
+
+                                // Check if current token is allowed to read
+                                if (decryptedMessage.allowedReaders.includes(currentNFCKey)) {
+                                    // Replace the encrypted message with decrypted one
+                                    const messageElements = document.querySelectorAll('.encrypted-message');
+                                    messageElements.forEach(el => {
+                                        if (el.textContent === storedContent) {
+                                            el.textContent = decryptedMessage.text;
+                                            
+                                            // Color based on writer
+                                            if (decryptedMessage.writerKey === currentNFCKey) {
+                                                el.style.backgroundColor = '#e6f3e6'; // Green
+                                            } else {
+                                                el.style.backgroundColor = '#fff3cd'; // Yellow
+                                            }
+                                        }
+                                    });
+                                } else {
+                                    showToast('You are not authorized to read this message');
                                 }
+
+                                // Clear the selected key
+                                localStorage.removeItem('selectedMessageKey');
+                            } catch (decryptError) {
+                                showToast('Decryption failed');
+                                console.error('Decryption failed:', decryptError);
                             }
                         }
+
+                        // Close security modal
+                        document.getElementById('securityModal').style.display = 'none';
                         
-                        showToast('Authentication needed - enter your private key');
+                        // Check if we had a pending write request
+                        if (pendingWriteRequest) {
+                            pendingWriteRequest = false;
+                            openWriteModal();
+                        }
+                        
+                        showToast('NFC Token Scanned Successfully');
                     });
 
                 } catch (error) {
@@ -493,64 +385,50 @@
             }
         }
         
-        function handlePendingOperations() {
-            closeSecurityModal();
-            
-            // If there was a pending message to decrypt
-            if (pendingMessageKey) {
-                decryptMessage(pendingMessageKey);
-                pendingMessageKey = null;
-            }
-            
-            // If there was a pending write request
-            if (pendingWriteRequest) {
-                pendingWriteRequest = false;
-                openWriteModal();
-            }
-        }
-        
         // Function to simulate NFC scan for testing on non-NFC devices
         function simulateNFCScan() {
             // Simulate the NFC data
             const mockNFCData = {
                 owner: {
-                    publicId: "1234567890abcdef"
+                    token: CryptoJS.AES.encrypt("test-key-12345", "system-master-key").toString()
                 },
                 readers: [
-                    { publicId: "abcdef1234567890", sessionKey: "reader-session-key-1" },
-                    { publicId: "fedcba0987654321", sessionKey: "reader-session-key-2" }
+                    { id: "reader1", token: "test-reader-token-1" },
+                    { id: "reader2", token: "test-reader-token-2" }
                 ]
             };
             
-            // Store NFC data
+            // Set the current key
+            currentNFCKey = "test-key-12345";
             currentNFCData = mockNFCData;
             
-            // For testing, ask the user what role they want to simulate
-            const role = prompt("Enter role for simulation (owner/reader1/reader2):", "owner");
+            // Update status
+            updateNFCStatus();
             
-            if (role === "owner") {
-                currentPrivateKey = "owner-private-key";
-                currentPublicId = "1234567890abcdef";
-            } else if (role === "reader1") {
-                currentPrivateKey = "reader1-private-key";
-                currentPublicId = "abcdef1234567890";
-            } else if (role === "reader2") {
-                currentPrivateKey = "reader2-private-key";
-                currentPublicId = "fedcba0987654321";
+            // Get the selected message key
+            const selectedKey = localStorage.getItem('selectedMessageKey');
+            
+            if (selectedKey) {
+                // Handle decryption (simplified for testing)
+                localStorage.removeItem('selectedMessageKey');
+                showToast('Message would be decrypted with simulated key');
             }
             
-            updateAuthStatus();
-            closeSecurityModal();
+            // Close security modal
+            document.getElementById('securityModal').style.display = 'none';
             
-            // Handle pending operations
-            handlePendingOperations();
+            // Check if we had a pending write request
+            if (pendingWriteRequest) {
+                pendingWriteRequest = false;
+                openWriteModal();
+            }
             
-            showToast(`Simulated NFC scan as ${role}`);
+            showToast('Simulated NFC Token Scan Successful');
         }
 
         // Initialize messages on page load
         initializeMessages();
-        updateAuthStatus();
+        updateNFCStatus();
     </script>
 </body>
 </html>

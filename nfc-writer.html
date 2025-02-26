@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Secure NFC Tag Writer</title>
+    <title>NFC Multi-User Tag Writer</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <style>
         body { 
@@ -47,30 +47,14 @@
         h1 {
             color: #2563eb;
         }
-        .alert {
-            background-color: #fff3cd;
-            border-left: 4px solid #ffc107;
-            padding: 10px;
-            margin-bottom: 15px;
-        }
     </style>
 </head>
 <body>
-    <h1>Secure NFC Tag Writer</h1>
-    
-    <div class="alert">
-        This version uses public/private key cryptography concepts without relying on a system master key.
-    </div>
+    <h1>NFC Multi-User Tag Writer</h1>
     
     <div class="form-group">
-        <label>Owner Private Key:</label>
-        <input type="text" id="ownerPrivateKey" placeholder="Your secret private key - NEVER share this">
-        <button onclick="generateOwnerKey()">Generate New Private Key</button>
-    </div>
-
-    <div class="form-group">
-        <label>Your Public ID (share this):</label>
-        <input type="text" id="ownerPublicId" readonly>
+        <label>Owner Token:</label>
+        <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner" required>
     </div>
 
     <div class="form-group">
@@ -88,39 +72,19 @@
     <script>
         let readers = [];
 
-        // Generate a random key
-        function generateSecureKey() {
-            return CryptoJS.lib.WordArray.random(16).toString();
-        }
-        
-        // Generate a public ID from a private key
-        function derivePublicId(privateKey) {
-            return CryptoJS.SHA256(privateKey).toString().substring(0, 16);
-        }
-        
-        // Generate owner keys
-        function generateOwnerKey() {
-            const privateKey = generateSecureKey();
-            document.getElementById('ownerPrivateKey').value = privateKey;
-            document.getElementById('ownerPublicId').value = derivePublicId(privateKey);
-        }
-
-        // Generate initial keys on page load
-        generateOwnerKey();
-
         function addReader() {
-            const readerPublicId = prompt("Enter Reader's Public ID:");
-            if (!readerPublicId) return;
+            const readerId = prompt("Enter Reader ID:");
+            if (!readerId) return;
             
-            // Generate a unique session key for this reader
-            const sessionKey = generateSecureKey();
+            const readerToken = prompt("Enter Reader Token (or leave empty to generate):");
+            const finalToken = readerToken || generateToken();
             
-            readers.push({ 
-                publicId: readerPublicId, 
-                sessionKey: sessionKey 
-            });
-            
+            readers.push({ id: readerId, token: finalToken });
             updateReadersList();
+        }
+
+        function generateToken() {
+            return CryptoJS.lib.WordArray.random(16).toString();
         }
 
         function updateReadersList() {
@@ -131,7 +95,8 @@
                 const readerDiv = document.createElement('div');
                 readerDiv.innerHTML = `
                     Reader ${index + 1}: 
-                    Public ID: ${reader.publicId}
+                    ID: ${reader.id}, 
+                    Token: ${reader.token}
                     <button onclick="removeReader(${index})">Remove</button>
                 `;
                 list.appendChild(readerDiv);
@@ -144,22 +109,24 @@
         }
 
         function showTagPreview() {
-            const privateKey = document.getElementById('ownerPrivateKey').value;
-            const publicId = document.getElementById('ownerPublicId').value;
+            const ownerToken = document.getElementById('ownerToken').value;
 
-            if (!privateKey) {
-                alert('Owner private key is required');
+            if (!ownerToken) {
+                alert('Owner token is required');
                 return;
             }
 
             // Create NFC tag payload
             const nfcPayload = {
                 owner: {
-                    publicId: publicId
+                    token: CryptoJS.AES.encrypt(
+                        ownerToken, 
+                        'system-master-key'
+                    ).toString()
                 },
                 readers: readers.map(reader => ({
-                    publicId: reader.publicId,
-                    sessionKey: reader.sessionKey
+                    id: reader.id,
+                    token: reader.token // Store tokens directly - they'll be used as decryption keys
                 }))
             };
 
@@ -169,22 +136,24 @@
         }
 
         async function prepareNFCTag() {
-            const privateKey = document.getElementById('ownerPrivateKey').value;
-            const publicId = document.getElementById('ownerPublicId').value;
+            const ownerToken = document.getElementById('ownerToken').value;
 
-            if (!privateKey) {
-                alert('Owner private key is required');
+            if (!ownerToken) {
+                alert('Owner token is required');
                 return;
             }
 
             // Create NFC tag payload
             const nfcPayload = {
                 owner: {
-                    publicId: publicId
+                    token: CryptoJS.AES.encrypt(
+                        ownerToken, 
+                        'system-master-key'
+                    ).toString()
                 },
                 readers: readers.map(reader => ({
-                    publicId: reader.publicId,
-                    sessionKey: reader.sessionKey
+                    id: reader.id,
+                    token: reader.token // Store tokens directly - they'll be used as decryption keys
                 }))
             };
 
@@ -204,9 +173,8 @@
 
                     document.getElementById('output').innerHTML = 
                         `<p>NFC Tag written successfully.</p>
-                        <p>Owner Public ID: ${publicId}</p>
-                        <p>Readers: ${readers.map(r => r.publicId).join(', ')}</p>
-                        <p><strong>Important:</strong> Save your private key (${privateKey}) securely. You'll need it to decrypt messages.</p>`;
+                        <p>Owner: ${ownerToken}</p>
+                        <p>Readers: ${readers.map(r => r.id).join(', ')}</p>`;
                 } catch (error) {
                     document.getElementById('output').innerHTML = 
                         `Error writing NFC tag: ${error}`;
