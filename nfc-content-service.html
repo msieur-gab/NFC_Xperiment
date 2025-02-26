@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>NFC Encrypted Content Service</title>
+    <title>NFC Key Encryption Service</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <style>
@@ -25,74 +25,96 @@
             padding: 10px;
             margin: 5px 0;
         }
+        .status-message {
+            color: blue;
+            margin: 10px 0;
+        }
     </style>
 </head>
 <body>
-    <h1>NFC Encrypted Content Service</h1>
+    <h1>NFC Key Encryption Service</h1>
 
     <div class="section" id="nfcReadSection">
-        <h2>Read Content with NFC</h2>
-        <button onclick="readNFCTag()">Scan NFC Tag to Read</button>
-        <button onclick="showAllMessages()">Show All Messages</button>
+        <h2>NFC Interaction</h2>
+        <button onclick="scanNFCTag('read')">Scan NFC Tag to Read</button>
+        <button onclick="scanNFCTag('write')">Scan NFC Tag to Write</button>
     </div>
 
-    <div class="section" id="storedMessagesSection">
-        <h2>Stored Messages</h2>
-        <div id="encryptedMessageList" class="message-list">
-            <h3>Encrypted Messages</h3>
-        </div>
-        <div id="decryptedMessageList" class="message-list">
-            <h3>Decrypted Messages</h3>
-        </div>
-    </div>
+    <div id="status" class="status-message"></div>
 
-    <div class="section" id="contentWriteSection">
-        <h2>Write Encrypted Content</h2>
-        <textarea id="contentInput" placeholder="Enter content to encrypt"></textarea>
-        <button onclick="writeEncryptedContent()">Encrypt and Store</button>
+    <div class="section" id="contentSection" style="display:none;">
+        <div id="readContent">
+            <h2>Stored Messages</h2>
+            <div id="encryptedMessageList" class="message-list">
+                <h3>Encrypted Messages</h3>
+            </div>
+            <div id="decryptedMessageList" class="message-list">
+                <h3>Decrypted Messages</h3>
+            </div>
+        </div>
+
+        <div id="writeContent" style="display:none;">
+            <h2>Write New Message</h2>
+            <textarea id="messageInput" placeholder="Enter message to encrypt"></textarea>
+            <button onclick="writeMessage()">Encrypt and Store</button>
+        </div>
     </div>
 
     <script>
-        const ownerKey = 'owner-primary-encryption-key';
-        const prepopulatedMessages = [
-            "This is a secret message about project X.",
-            "Emergency contact: Dr. Smith at 555-1234",
-            "Backup encryption key is stored in the safety deposit box."
-        ];
+        let currentNFCKey = null;
+        let currentMode = null;
 
-        // Initialize prepopulated messages on page load
-        async function initializePrepopulatedMessages() {
-            // Clear existing storage
-            await localforage.clear();
-            
-            for (let i = 0; i < prepopulatedMessages.length; i++) {
-                const hash = CryptoJS.SHA256(`prepopulated-message-${i}`).toString().substring(0, 12);
-                
-                // Encrypt message
-                const encryptedContent = CryptoJS.AES.encrypt(
-                    prepopulatedMessages[i], 
-                    ownerKey
-                ).toString();
+        async function scanNFCTag(mode) {
+            currentMode = mode;
+            document.getElementById('status').textContent = `Scan NFC Tag for ${mode} operation`;
 
-                // Store encrypted content
-                await localforage.setItem(
-                    `encrypted_${hash}`, 
-                    encryptedContent
-                );
+            if ('NDEFReader' in window) {
+                try {
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+
+                    ndef.addEventListener("reading", async ({ message }) => {
+                        const decoder = new TextDecoder();
+                        const tagData = JSON.parse(
+                            decoder.decode(message.records[0].data)
+                        );
+
+                        // Extract encryption key from NFC tag
+                        currentNFCKey = CryptoJS.AES.decrypt(
+                            tagData.ownerKey, 
+                            'system-master-key'
+                        ).toString(CryptoJS.enc.Utf8);
+
+                        document.getElementById('status').textContent = 'NFC Tag Read Successfully';
+                        document.getElementById('contentSection').style.display = 'block';
+
+                        if (mode === 'read') {
+                            await displayMessages();
+                            document.getElementById('writeContent').style.display = 'none';
+                            document.getElementById('readContent').style.display = 'block';
+                        } else {
+                            document.getElementById('writeContent').style.display = 'block';
+                            document.getElementById('readContent').style.display = 'none';
+                        }
+                    });
+
+                } catch (error) {
+                    document.getElementById('status').textContent = `NFC Error: ${error}`;
+                }
+            } else {
+                document.getElementById('status').textContent = 'NFC not supported on this device';
             }
-            
-            // Show messages immediately
-            await showAllMessages();
         }
 
-        async function showAllMessages() {
-            // Clear previous messages
+        async function displayMessages() {
             const encryptedList = document.getElementById('encryptedMessageList');
             const decryptedList = document.getElementById('decryptedMessageList');
+            
+            // Clear previous messages
             encryptedList.innerHTML = '<h3>Encrypted Messages</h3>';
             decryptedList.innerHTML = '<h3>Decrypted Messages</h3>';
 
-            // Get all keys in local storage
+            // Get all encrypted message keys
             const keys = await localforage.keys();
             const encryptedKeys = keys.filter(key => key.startsWith('encrypted_'));
 
@@ -105,11 +127,11 @@
                 encryptedDiv.textContent = storedContent;
                 encryptedList.appendChild(encryptedDiv);
 
-                // Try to decrypt
+                // Try to decrypt with NFC tag key
                 try {
                     const decryptedContent = CryptoJS.AES.decrypt(
                         storedContent, 
-                        ownerKey
+                        currentNFCKey
                     ).toString(CryptoJS.enc.Utf8);
 
                     const decryptedDiv = document.createElement('div');
@@ -117,43 +139,40 @@
                     decryptedDiv.textContent = decryptedContent;
                     decryptedList.appendChild(decryptedDiv);
                 } catch (decryptError) {
-                    console.error('Decryption failed for key:', key);
+                    console.error('Decryption failed:', decryptError);
                 }
             }
         }
 
-        async function readNFCTag() {
-            alert('NFC Tag Reading Simulation (Press OK to Decrypt)');
-            await showAllMessages();
-        }
+        async function writeMessage() {
+            if (!currentNFCKey) {
+                alert('Scan NFC tag first');
+                return;
+            }
 
-        async function writeEncryptedContent() {
-            const content = document.getElementById('contentInput').value;
+            const message = document.getElementById('messageInput').value;
             
-            // Generate a new unique hash
-            const hash = CryptoJS.SHA256(content + Date.now()).toString().substring(0, 12);
+            // Generate unique hash
+            const hash = CryptoJS.SHA256(message + Date.now()).toString().substring(0, 12);
 
-            // Encrypt content with owner key
-            const encryptedContent = CryptoJS.AES.encrypt(
-                content, 
-                ownerKey
+            // Encrypt with NFC tag key
+            const encryptedMessage = CryptoJS.AES.encrypt(
+                message, 
+                currentNFCKey
             ).toString();
 
-            // Store encrypted content in localForage
+            // Store encrypted message
             await localforage.setItem(
                 `encrypted_${hash}`, 
-                encryptedContent
+                encryptedMessage
             );
 
-            alert('Content encrypted and stored successfully');
-            document.getElementById('contentInput').value = '';
+            document.getElementById('messageInput').value = '';
+            document.getElementById('status').textContent = 'Message encrypted and stored';
 
-            // Refresh message list
-            await showAllMessages();
+            // Refresh messages
+            await displayMessages();
         }
-
-        // Initialize prepopulated messages when page loads
-        document.addEventListener('DOMContentLoaded', initializePrepopulatedMessages);
     </script>
 </body>
 </html>
