@@ -173,10 +173,8 @@
             // Create NFC tag payload
             const nfcPayload = {
                 owner: {
-                    token: CryptoJS.AES.encrypt(
-                        ownerToken, 
-                        'system-master-key'
-                    ).toString()
+                    id: "owner",
+                    token: ownerToken // Store owner token directly, just like reader tokens
                 },
                 readers: readers.map(reader => ({
                     id: reader.id,
