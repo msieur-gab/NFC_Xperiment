@@ -9,8 +9,8 @@
     <style>
         :root {
             --primary: #333;
-            --primary-dark: #8cf317;
-            --primary-light: #b6b6b6;
+            --primary-dark: #000;
+            --primary-light: #dbeafe;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
@@ -765,8 +765,11 @@
         
         // Open a specific thread and show its messages
         async function openThread(threadId) {
+            console.log("Opening thread:", threadId);
+            
             // Prevent multiple clicks from creating duplicates
             if (currentThreadId === threadId && currentView === 'messages') {
+                console.log("Already viewing this thread");
                 return; // Already viewing this thread, don't reopen
             }
             
@@ -782,7 +785,16 @@
             
             // Get thread data
             const threadData = await localforage.getItem(threadId);
+            console.log("Thread data:", threadData);
+            
+            if (!threadData) {
+                showToast('Thread not found');
+                backToThreads();
+                return;
+            }
+            
             let decryptedData;
+            let threadKey;
             
             try {
                 // First, we need to decrypt the thread key using the reader's token
@@ -794,10 +806,12 @@
                 
                 // Get the thread key that was encrypted with this reader's token
                 const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
-                const threadKey = CryptoJS.AES.decrypt(
+                threadKey = CryptoJS.AES.decrypt(
                     encryptedThreadKey,
                     currentNFCKey
                 ).toString(CryptoJS.enc.Utf8);
+                
+                console.log("Decrypted thread key:", threadKey);
                 
                 // Now use the thread key to decrypt the actual thread data
                 decryptedData = JSON.parse(CryptoJS.AES.decrypt(
@@ -808,28 +822,19 @@
                 // Update header with thread title
                 headerTitle.textContent = decryptedData.title;
             } catch (e) {
+                console.error("Decryption error:", e);
                 showToast('Failed to decrypt thread');
+                backToThreads();
                 return;
             }
             
-            // First check if we already have this thread open
-            if (currentThreadId === threadId) {
-                return; // Don't reload if already viewing
-            }
-            
-            // Clear any existing message content to prevent duplication
-            const existingContainer = document.getElementById('messageContainer');
-            if (existingContainer) {
-                existingContainer.innerHTML = '';
-            } else {
-                // Clear content area and prepare for messages
-                mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
-            }
-            
+            // Clear content area and prepare for messages
+            mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
             const messageContainer = document.getElementById('messageContainer');
             
             // Load thread messages
             const messages = await loadThreadMessages(threadId);
+            console.log("Thread messages:", messages);
             
             if (messages.length === 0) {
                 messageContainer.innerHTML = `
@@ -844,17 +849,9 @@
                     let messageText, isSelf;
                     
                     try {
-                        // Get the thread data to access the thread key
-                        const threadData = await localforage.getItem(currentThreadId);
+                        console.log("Decrypting message:", message.id);
                         
-                        // Decrypt the thread key using reader's token
-                        const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
-                        const threadKey = CryptoJS.AES.decrypt(
-                            encryptedThreadKey,
-                            currentNFCKey
-                        ).toString(CryptoJS.enc.Utf8);
-                        
-                        // Use the thread key to decrypt the message
+                        // Use the thread key we already decrypted above
                         const decrypted = JSON.parse(CryptoJS.AES.decrypt(
                             message.encryptedContent,
                             threadKey
@@ -891,9 +888,12 @@
         
         // Load messages for a specific thread
         async function loadThreadMessages(threadId) {
+            console.log("Loading messages for thread:", threadId);
+            
             // Get all message keys for this thread
             const keys = await localforage.keys();
             const messageKeys = keys.filter(key => key.startsWith(`message_${threadId}_`));
+            console.log("Message keys found:", messageKeys);
             
             const messages = [];
             
@@ -1114,20 +1114,39 @@
                 // Generate message ID
                 const messageId = `message_${currentThreadId}_${Date.now()}`;
                 
-                // Store message
-                await localforage.setItem(messageId, {
+                // Create the message object to store
+                const messageObject = {
                     threadId: currentThreadId,
                     encryptedContent: encryptedContent,
                     senderId: currentNFCKey,
                     allowedReaders: threadData.allowedReaders,
                     timestamp: Date.now()
-                });
+                };
+                
+                // Debug log
+                console.log("Storing message:", messageId, messageObject);
+                
+                // Store message
+                await localforage.setItem(messageId, messageObject);
                 
                 // Clear input
                 messageInput.value = '';
                 
-                // Refresh thread messages
-                openThread(currentThreadId);
+                // Append the message to the UI immediately
+                const messageContainer = document.getElementById('messageContainer');
+                if (messageContainer) {
+                    const messageCard = document.createElement('div');
+                    messageCard.className = 'message-card self';
+                    messageCard.innerHTML = `
+                        <div class="message-author">You</div>
+                        <div class="message-content">${messageText}</div>
+                        <div class="message-time">${new Date().toLocaleTimeString()}</div>
+                    `;
+                    messageContainer.appendChild(messageCard);
+                    
+                    // Scroll to bottom
+                    messageContainer.scrollTop = messageContainer.scrollHeight;
+                }
             } catch (error) {
                 console.error('Error sending message:', error);
                 showToast('Error sending message');
