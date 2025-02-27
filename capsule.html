@@ -195,6 +195,22 @@
             outline-offset: 2px;
         }
 
+        /* iOS specific styles */
+        .ios-device .capsule.expanded {
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            width: 90vw !important;
+            height: 90vh !important;
+            margin: 0 !important;
+            flex: none !important;
+        }
+
+        .ios-device .vault.has-expanded-capsule {
+            overflow: hidden !important;
+        }
+
         /* Improved responsiveness for small screens */
         @media (max-width: 480px) {
             .capsule.expanded {
@@ -652,6 +668,19 @@
         function collapseCapsule(capsule, vault, indicators, backArrow) {
             const capsuleIndex = Array.from(vault.children).indexOf(capsule);
             
+            // Reset iOS-specific styling if present
+            if (document.body.classList.contains('ios-device')) {
+                capsule.style.position = '';
+                capsule.style.top = '';
+                capsule.style.left = '';
+                capsule.style.transform = '';
+                capsule.style.width = '';
+                capsule.style.height = '';
+                capsule.style.maxWidth = '';
+                capsule.style.maxHeight = '';
+                capsule.style.zIndex = '';
+            }
+            
             vault.classList.remove('has-expanded-capsule');
             capsule.classList.remove('expanded');
             indicators.classList.remove('hidden');
@@ -674,6 +703,58 @@
             }, CONSTANTS.COLLAPSE_DURATION);
         }
 
+        // iOS Fix for capsule centering
+        function detectIOSAndApplyFix() {
+            // iOS detection (this covers iPhone, iPad, and iPod)
+            const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+            
+            if (isIOS) {
+                // Add iOS-specific class for styling
+                document.body.classList.add('ios-device');
+                
+                // Override the expandCapsule function for iOS devices
+                const originalExpandCapsule = expandCapsule;
+                
+                // Create iOS-specific version of expandCapsule
+                window.expandCapsule = function(capsule, vault, indicators, backArrow) {
+                    const capsuleIndex = Array.from(vault.children).indexOf(capsule);
+                    
+                    // Center the capsule first
+                    scrollToIndex(vault, capsuleIndex);
+                    
+                    // Add a class to the body to help with positioning
+                    document.body.classList.add('has-expanded-capsule');
+                    
+                    setTimeout(() => {
+                        // Ensure the vault container is properly sized
+                        const vaultContainer = document.querySelector('.vault-container');
+                        vaultContainer.style.maxWidth = '100%';
+                        
+                        vault.classList.add('has-expanded-capsule');
+                        capsule.classList.add('expanded');
+                        indicators.classList.add('hidden');
+                        backArrow.classList.add('visible');
+                        
+                        // iOS-specific positioning - use fixed positioning for better reliability
+                        capsule.style.position = 'fixed';
+                        capsule.style.top = '50%';
+                        capsule.style.left = '50%';
+                        capsule.style.transform = 'translate(-50%, -50%)';
+                        capsule.style.width = '90vw';
+                        capsule.style.height = '90vh';
+                        capsule.style.maxWidth = '90vw';
+                        capsule.style.maxHeight = '90vh';
+                        capsule.style.zIndex = '100';
+                        
+                        // Set focus to the back arrow for better accessibility
+                        setTimeout(() => {
+                            backArrow.focus();
+                        }, 100);
+                    }, CONSTANTS.EXPAND_DURATION);
+                };
+            }
+        }
+
         // Utility debounce function
         function debounce(func, wait) {
             let timeout;
@@ -684,7 +765,10 @@
         }
 
         // Initialize the vault when DOM is loaded
-        document.addEventListener('DOMContentLoaded', renderVault);
+        document.addEventListener('DOMContentLoaded', function() {
+            renderVault();
+            detectIOSAndApplyFix();
+        });
     </script>
 </body>
 </html>
