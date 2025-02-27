@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Vault</title>
+    <style>
+        *, body, html {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+
+        .vault-container {
+            width: 100%;
+            max-width: 800px;
+            position: relative;
+            overflow: visible;
+            transition: all 0.3s ease;
+        }
+
+        .vault {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            padding-left: calc(50% - 125px);
+            padding-right: calc(50% - 125px);
+            overflow-x: scroll;
+            scroll-snap-type: x mandatory;
+            scroll-behavior: smooth;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+            touch-action: pan-x;
+            -webkit-overflow-scrolling: touch;
+        }
+
+        .vault::-webkit-scrollbar {
+            display: none;
+        }
+
+        .capsule {
+            flex: 0 0 250px;
+            height: 350px;
+            background-color: #ffffff;
+            color: #272727;
+            border-radius: 12px;
+            scroll-snap-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            transform-origin: center;
+            transition: 
+                flex-basis 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.2s,
+                opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            touch-action: pan-y;
+        }
+
+        .capsule.expanded {
+            flex: 0 0 calc(90vw - 32px);
+            height: 90vh;
+            z-index: 10;
+            cursor: default;
+            margin: 0 16px;
+        }
+
+        .vault.has-expanded-capsule {
+            padding-left: calc(50% - 45vw + 16px);
+            padding-right: calc(50% - 45vw + 16px);
+            gap: 0;
+            overflow: hidden;
+        }
+
+        .vault.has-expanded-capsule .capsule:not(.expanded) {
+            flex: 0 0 0;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition-delay: 0s;
+        }
+
+        .indicators {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+            position: relative;
+            padding: 4px 0;
+            transition: all 0.3s ease;
+        }
+
+        .indicators.hidden {
+            transform: translateY(20px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.has-expanded-capsule {
+            overflow: hidden;
+        }
+
+        .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #ccc;
+            cursor: pointer;
+            transition: 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .moving-indicator {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #333;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            z-index: 2;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .indicator.active {
+            background-color: transparent;
+        }
+
+        .back-arrow {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #f4f4f4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transform: translateX(-60px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 11;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .back-arrow::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            border-left: 2px solid #333;
+            border-bottom: 2px solid #333;
+            transform: rotate(45deg);
+            margin-left: 4px;
+        }
+
+        .back-arrow.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .back-arrow:hover {
+            background-color: #e4e4e4;
+        }
+    </style>
+</head>
+<body>
+    <div class="vault-container">
+        <div id="vault" class="vault">
+            <!-- Capsules will be added here -->
+        </div>
+        <div id="indicators" class="indicators">
+            <!-- Indicators will be added here -->
+        </div>
+    </div>
+
+    <script>
+        // Refactored Time Vault JavaScript
+        class TimeVault {
+            constructor(options = {}) {
+                // Default configuration
+                this.config = {
+                    totalCapsules: options.totalCapsules || 5,
+                    capsuleWidth: options.capsuleWidth || 250,
+                    capsuleGap: options.capsuleGap || 16,
+                    swipeThreshold: options.swipeThreshold || 10,
+                    swipeTimeout: options.swipeTimeout || 300,
+                    momentumMultiplier: options.momentumMultiplier || 0.8,
+                    expandDuration: options.expandDuration || 300,
+                    collapseDuration: options.collapseDuration || 600
+                };
+
+                // DOM elements
+                this.vault = document.getElementById('vault');
+                this.indicators = document.getElementById('indicators');
+                this.backArrow = null;
+                this.movingIndicator = null;
+
+                // Touch tracking
+                this.touchState = {
+                    start: null,
+                    startTime: 0,
+                    startScrollLeft: 0,
+                    isDragging: false
+                };
+
+                this.init();
+            }
+
+            init() {
+                this.renderVault();
+                this.setupEventListeners();
+                this.setupObservers();
+            }
+
+            renderVault() {
+                // Create capsules and indicators
+                for (let i = 0; i < this.config.totalCapsules; i++) {
+                    const capsule = document.createElement('div');
+                    capsule.className = 'capsule';
+                    capsule.textContent = `Capsule ${i + 1}`;
+                    this.vault.appendChild(capsule);
+
+                    const indicator = document.createElement('div');
+                    indicator.className = 'indicator';
+                    indicator.dataset.index = i;
+                    this.indicators.appendChild(indicator);
+                }
+
+                // Create back arrow
+                this.backArrow = document.createElement('div');
+                this.backArrow.className = 'back-arrow';
+                document.body.appendChild(this.backArrow);
+
+                // Create moving indicator
+                this.movingIndicator = document.createElement('div');
+                this.movingIndicator.className = 'moving-indicator';
+                this.indicators.appendChild(this.movingIndicator);
+            }
+
+            setupEventListeners() {
+                // Capsule click handlers
+                this.vault.querySelectorAll('.capsule').forEach((capsule) => {
+                    capsule.addEventListener('click', () => this.handleCapsuleClick(capsule));
+                });
+
+                // Back arrow click handler
+                this.backArrow.addEventListener('click', () => this.handleBackArrowClick());
+
+                // Indicator click handlers
+                this.indicators.querySelectorAll('.indicator').forEach((indicator, index) => {
+                    indicator.addEventListener('click', () => this.scrollToIndex(index));
+                });
+
+                // Scroll event for smooth indicator updates
+                this.vault.addEventListener('scroll', () => this.updateActiveIndicator(), { passive: true });
+
+                // Touch event handlers
+                this.setupTouchHandlers();
+
+                // Initial active state
+                this.updateActiveIndicator(0);
+            }
+
+            setupTouchHandlers() {
+                this.vault.addEventListener('touchstart', this.handleTouchStart.bind(this), { passive: true });
+                this.vault.addEventListener('touchmove', this.handleTouchMove.bind(this), { passive: true });
+                this.vault.addEventListener('touchend', this.handleTouchEnd.bind(this), { passive: true });
+                this.vault.addEventListener('touchcancel', this.handleTouchCancel.bind(this), { passive: true });
+
+                // Prevent default touch behavior on expanded capsule
+                this.vault.querySelectorAll('.capsule').forEach(capsule => {
+                    capsule.addEventListener('touchmove', (e) => {
+                        if (capsule.classList.contains('expanded')) {
+                            e.stopPropagation();
+                        }
+                    }, { passive: true });
+                });
+            }
+
+            handleTouchStart(e) {
+                const touch = e.touches[0];
+                this.touchState = {
+                    start: touch.clientX,
+                    startTime: Date.now(),
+                    startScrollLeft: this.vault.scrollLeft,
+                    isDragging: true
+                };
+
+                // Disable snap scrolling during swipe
+                this.vault.style.scrollSnapType = 'none';
+            }
+
+            handleTouchMove(e) {
+                if (!this.touchState.isDragging) return;
+
+                const touch = e.touches[0];
+                const deltaX = this.touchState.start - touch.clientX;
+                this.vault.scrollLeft = this.touchState.startScrollLeft + deltaX;
+            }
+
+            handleTouchEnd(e) {
+                if (!this.touchState.isDragging) return;
+                this.touchState.isDragging = false;
+
+                const touch = e.changedTouches[0];
+                const deltaX = this.touchState.start - touch.clientX;
+                const deltaTime = Date.now() - this.touchState.startTime;
+
+                // Re-enable snap scrolling
+                this.vault.style.scrollSnapType = 'x mandatory';
+
+                // Handle quick swipe
+                if (deltaTime < this.config.swipeTimeout) {
+                    this.handleSwipe(deltaX, deltaTime);
+                }
+            }
+
+            handleSwipe(deltaX, deltaTime) {
+                const velocity = Math.abs(deltaX / deltaTime);
+                const direction = Math.sign(deltaX);
+                const capsuleFullWidth = this.config.capsuleWidth + this.config.capsuleGap;
+
+                if (Math.abs(deltaX) > this.config.swipeThreshold) {
+                    const currentIndex = Math.round(this.vault.scrollLeft / capsuleFullWidth);
+                    const targetIndex = currentIndex + direction;
+                    
+                    if (targetIndex >= 0 && targetIndex < this.config.totalCapsules) {
+                        // Add momentum effect
+                        const momentum = velocity * this.config.momentumMultiplier;
+                        this.vault.style.scrollBehavior = 'smooth';
+                        this.scrollToIndex(targetIndex);
+                        
+                        // Reset scroll behavior after animation
+                        setTimeout(() => {
+                            this.vault.style.scrollBehavior = 'smooth';
+                        }, 300);
+                    }
+                } else {
+                    // Snap back to nearest capsule if swipe wasn't strong enough
+                    const currentIndex = Math.round(this.vault.scrollLeft / capsuleFullWidth);
+                    this.scrollToIndex(currentIndex);
+                }
+            }
+
+            handleTouchCancel() {
+                if (this.touchState.isDragging) {
+                    this.touchState.isDragging = false;
+                    this.vault.style.scrollSnapType = 'x mandatory';
+                    const capsuleFullWidth = this.config.capsuleWidth + this.config.capsuleGap;
+                    const currentIndex = Math.round(this.vault.scrollLeft / capsuleFullWidth);
+                    this.scrollToIndex(currentIndex);
+                }
+            }
+
+            setupObservers() {
+                const observerOptions = {
+                    root: this.vault,
+                    threshold: [0.5, 1.0],
+                    rootMargin: '-50% 0px'
+                };
+
+                let currentlyVisible = new Set();
+                const capsuleObserver = new IntersectionObserver((entries) => {
+                    entries.forEach(entry => {
+                        const capsule = entry.target;
+                        const index = Array.from(this.vault.children).indexOf(capsule);
+
+                        if (entry.isIntersecting) {
+                            currentlyVisible.add(index);
+                        } else {
+                            currentlyVisible.delete(index);
+                        }
+
+                        // Find the most centered visible capsule
+                        if (currentlyVisible.size > 0) {
+                            const scrollCenter = this.vault.scrollLeft + (this.vault.clientWidth / 2);
+                            let closestIndex = Array.from(currentlyVisible).reduce((prev, curr) => {
+                                const prevCapsule = this.vault.children[prev];
+                                const currCapsule = this.vault.children[curr];
+                                const prevCenter = prevCapsule.offsetLeft + (prevCapsule.offsetWidth / 2);
+                                const currCenter = currCapsule.offsetLeft + (currCapsule.offsetWidth / 2);
+                                
+                                return Math.abs(prevCenter - scrollCenter) < Math.abs(currCenter - scrollCenter) ? prev : curr;
+                            });
+
+                            this.updateActiveIndicator(closestIndex);
+                        }
+                    });
+                }, observerOptions);
+
+                // Observe all capsules
+                this.vault.querySelectorAll('.capsule').forEach(capsule => {
+                    capsuleObserver.observe(capsule);
+                });
+            }
+
+            handleCapsuleClick(capsule) {
+                if (!capsule.classList.contains('expanded')) {
+                    const capsuleIndex = Array.from(this.vault.children).indexOf(capsule);
+                    this.expandCapsule(capsule, capsuleIndex);
+                }
+            }
+
+            handleBackArrowClick() {
+                const expandedCapsule = document.querySelector('.capsule.expanded');
+                if (expandedCapsule) {
+                    this.collapseCapsule(expandedCapsule);
+                }
+            }
+
+            scrollToIndex(index) {
+                const capsuleFullWidth = this.config.capsuleWidth + this.config.capsuleGap;
+                this.vault.scrollTo({
+                    left: index * capsuleFullWidth,
+                    behavior: 'smooth'
+                });
+            }
+
+            updateActiveIndicator(activeIndex, exactIndex = activeIndex) {
+                const indicators = this.indicators.querySelectorAll('.indicator');
+                
+                // Update active state
+                indicators.forEach((indicator, index) => {
+                    indicator.classList.toggle('active', index === activeIndex);
+                });
+
+                // Calculate position for moving indicator
+                const firstIndicator = indicators[0];
+                const containerRect = this.indicators.getBoundingClientRect();
+                const firstIndicatorRect = firstIndicator.getBoundingClientRect();
+                const initialOffset = firstIndicatorRect.left - containerRect.left;
+                const indicatorWidth = firstIndicatorRect.width;
+                const indicatorGap = this.config.capsuleGap;
+                
+                if (exactIndex === activeIndex) {
+                    this.movingIndicator.style.width = `${indicatorWidth}px`;
+                    const position = initialOffset + (activeIndex * (indicatorWidth + indicatorGap));
+                    this.movingIndicator.style.left = `${position}px`;
+                } else {
+                    const startIndex = Math.floor(exactIndex);
+                    const endIndex = Math.ceil(exactIndex);
+                    const startPos = initialOffset + (startIndex * (indicatorWidth + indicatorGap));
+                    const endPos = initialOffset + (endIndex * (indicatorWidth + indicatorGap));
+                    const width = (endPos - startPos) + indicatorWidth;
+                    
+                    this.movingIndicator.style.left = `${startPos}px`;
+                    this.movingIndicator.style.width = `${width}px`;
+                }
+            }
+
+            expandCapsule(capsule, capsuleIndex) {
+                // Center the capsule first
+                this.scrollToIndex(capsuleIndex);
+
+                // Add a class to the body to help with positioning
+                document.body.classList.add('has-expanded-capsule');
+
+                setTimeout(() => {
+                    // Ensure the vault container is properly sized
+                    const vaultContainer = document.querySelector('.vault-container');
+                    vaultContainer.style.maxWidth = '100%';
+                    
+                    this.vault.classList.add('has-expanded-capsule');
+                    capsule.classList.add('expanded');
+                    this.indicators.classList.add('hidden');
+                    this.backArrow.classList.add('visible');
+                }, this.config.expandDuration);
+            }
+
+            collapseCapsule(capsule) {
+                const capsuleIndex = Array.from(this.vault.children).indexOf(capsule);
+                
+                this.vault.classList.remove('has-expanded-capsule');
+                capsule.classList.remove('expanded');
+                this.indicators.classList.remove('hidden');
+                this.backArrow.classList.remove('visible');
+                
+                // Reset the vault container size
+                const vaultContainer = document.querySelector('.vault-container');
+                vaultContainer.style.maxWidth = '800px';
+                
+                // Remove the body class
+                document.body.classList.remove('has-expanded-capsule');
+
+                setTimeout(() => {
+                    this.scrollToIndex(capsuleIndex);
+                }, this.config.collapseDuration);
+            }
+        }
+
+        // Initialize the Time Vault when the DOM is loaded
+        document.addEventListener('DOMContentLoaded', () => {
+            new TimeVault();
+        });
+    </script>
+</body>
+</html>
