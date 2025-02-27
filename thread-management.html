@@ -8,9 +8,9 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <style>
         :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --primary-light: #dbeafe;
+            --primary: #333;
+            --primary-dark: #000000;
+            --primary-light: #a5a5a5;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
@@ -659,9 +659,28 @@
                 } else {
                     // Check if this user can decrypt the thread
                     try {
+                        // Check if this user has permission to decrypt
+                        if (!threadData.encryptedKeys || !threadData.encryptedKeys[currentNFCKey]) {
+                            threadCard.classList.add('locked');
+                            threadCard.innerHTML = `
+                                <div class="thread-title">Encrypted Thread</div>
+                                <div class="thread-preview">You don't have permission to view this thread</div>
+                                <div class="lock-icon">🔒</div>
+                            `;
+                            continue;
+                        }
+                        
+                        // Decrypt the thread key using reader's token
+                        const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                        const threadKey = CryptoJS.AES.decrypt(
+                            encryptedThreadKey,
+                            currentNFCKey
+                        ).toString(CryptoJS.enc.Utf8);
+                        
+                        // Now use the thread key to decrypt the thread data
                         const decryptedData = JSON.parse(CryptoJS.AES.decrypt(
                             threadData.encryptedData,
-                            currentNFCKey
+                            threadKey
                         ).toString(CryptoJS.enc.Utf8));
                         
                         // User can decrypt, show thread details
@@ -743,9 +762,24 @@
             let decryptedData;
             
             try {
+                // First, we need to decrypt the thread key using the reader's token
+                if (!threadData.encryptedKeys || !threadData.encryptedKeys[currentNFCKey]) {
+                    showToast('You do not have permission to access this thread');
+                    backToThreads();
+                    return;
+                }
+                
+                // Get the thread key that was encrypted with this reader's token
+                const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                const threadKey = CryptoJS.AES.decrypt(
+                    encryptedThreadKey,
+                    currentNFCKey
+                ).toString(CryptoJS.enc.Utf8);
+                
+                // Now use the thread key to decrypt the actual thread data
                 decryptedData = JSON.parse(CryptoJS.AES.decrypt(
                     threadData.encryptedData,
-                    currentNFCKey
+                    threadKey
                 ).toString(CryptoJS.enc.Utf8));
                 
                 // Update header with thread title
@@ -775,11 +809,21 @@
                     let messageText, isSelf;
                     
                     try {
-                        // Try to decrypt the message
-                        const decrypted = JSON.parse(CryptoJS.AES.decrypt(
-                            message.encryptedContent,
-                            currentNFCKey
-                        ).toString(CryptoJS.enc.Utf8));
+                        // Get the thread data to access the thread key
+                    const threadData = await localforage.getItem(currentThreadId);
+                    
+                    // Decrypt the thread key using reader's token
+                    const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                    const threadKey = CryptoJS.AES.decrypt(
+                        encryptedThreadKey,
+                        currentNFCKey
+                    ).toString(CryptoJS.enc.Utf8);
+                    
+                    // Use the thread key to decrypt the message
+                    const decrypted = JSON.parse(CryptoJS.AES.decrypt(
+                        message.encryptedContent,
+                        threadKey
+                    ).toString(CryptoJS.enc.Utf8));
                         
                         messageText = decrypted.text;
                         isSelf = message.senderId === currentNFCKey;
@@ -940,15 +984,32 @@
                     createdAt: Date.now()
                 };
                 
-                // Encrypt thread data with owner's key
+                // Create a shared secret key that all readers can use
+                // We'll use the threadId as the encryption key so all authorized readers can decrypt
+                const threadKey = CryptoJS.SHA256(threadId).toString().substring(0, 32);
+                
+                // Encrypt thread data with the shared thread key
                 const encryptedData = CryptoJS.AES.encrypt(
                     JSON.stringify(threadData),
-                    currentNFCKey
+                    threadKey
                 ).toString();
+                
+                // Now encrypt the threadKey with each reader's token
+                // so only authorized readers can get the decryption key
+                const encryptedKeys = {};
+                
+                // Encrypt the thread key individually for each allowed reader
+                for (const readerToken of selectedReaders) {
+                    encryptedKeys[readerToken] = CryptoJS.AES.encrypt(
+                        threadKey, 
+                        readerToken
+                    ).toString();
+                }
                 
                 // Store thread with metadata
                 await localforage.setItem(threadId, {
                     encryptedData: encryptedData,
+                    encryptedKeys: encryptedKeys,
                     allowedReaders: selectedReaders,
                     createdAt: Date.now()
                 });
@@ -998,10 +1059,18 @@
                     senderId: currentNFCKey
                 };
                 
-                // Encrypt message with the sender's key
+                // Get the thread key to encrypt this message
+                const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                const threadKey = CryptoJS.AES.decrypt(
+                    encryptedThreadKey,
+                    currentNFCKey
+                ).toString(CryptoJS.enc.Utf8);
+                
+                // Encrypt message with the thread key (not the sender's key)
+                // This ensures all authorized readers can decrypt
                 const encryptedContent = CryptoJS.AES.encrypt(
                     JSON.stringify(messageData),
-                    currentNFCKey
+                    threadKey
                 ).toString();
                 
                 // Generate message ID
