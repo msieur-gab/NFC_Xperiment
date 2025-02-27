@@ -77,18 +77,27 @@
         }
 
         .capsule.expanded {
-            flex: 0 0 calc(90vw - 32px); /* Subtract padding to prevent cropping */
-            height: 90vh;
-            z-index: 10;
-            cursor: default;
-            margin: 0 16px; /* Add margin to prevent cropping */
+            flex: 0 0 calc(90vw - 32px) !important;
+            height: 90vh !important;
+            z-index: 10 !important;
+            cursor: default !important;
+            margin: 0 auto !important;
+            max-width: 100vw !important;
+            position: relative !important;
+            left: auto !important;
+            right: auto !important;
+            transform: none !important;
         }
 
         .vault.has-expanded-capsule {
-            padding-left: calc(50% - 45vw + 16px); /* Add half of the margin */
-            padding-right: calc(50% - 45vw + 16px); /* Add half of the margin */
-            gap: 0;
-            overflow: hidden;
+            padding: 0 !important;
+            gap: 0 !important;
+            overflow: hidden !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            width: 100% !important;
+            height: 100vh !important;
         }
 
         .vault.has-expanded-capsule .capsule:not(.expanded) {
@@ -183,6 +192,13 @@
         /* Add hover effect */
         .back-arrow:hover {
             background-color: #e4e4e4;
+        }
+
+        @media (max-width: 768px) {
+            .capsule.expanded {
+                flex: 0 0 calc(100vw - 32px);
+                margin: 0 16px !important;
+            }
         }
     </style>
 </head>
@@ -504,26 +520,84 @@
         function expandCapsule(capsule, vault, indicators, backArrow, rect) {
             const capsuleIndex = Array.from(vault.children).indexOf(capsule);
             
+            // Hide indicators immediately to avoid glitches
+            indicators.classList.add('hidden');
+            
             // Center the capsule first
             scrollToIndex(vault, capsuleIndex);
 
             // Add a class to the body to help with positioning
             document.body.classList.add('has-expanded-capsule');
 
+            // Store original position for animation reference
+            const originalRect = capsule.getBoundingClientRect();
+            
+            // Immediately increase z-index of the selected capsule to prevent shadow stacking
+            capsule.style.zIndex = '10';
+            
             setTimeout(() => {
                 // Ensure the vault container is properly sized
                 const vaultContainer = document.querySelector('.vault-container');
                 vaultContainer.style.maxWidth = '100%';
                 
+                // Completely reset the vault layout to ensure proper centering
+                vault.style.display = 'flex';
+                vault.style.justifyContent = 'center';
+                vault.style.alignItems = 'center';
+                vault.style.paddingLeft = '0';
+                vault.style.paddingRight = '0';
+                vault.style.gap = '0';
+                
+                // Reset all capsule positioning to ensure clean expansion
+                Array.from(vault.children).forEach(c => {
+                    if (c !== capsule) {
+                        c.style.position = 'absolute';
+                        c.style.opacity = '0';
+                        c.style.pointerEvents = 'none';
+                        c.style.zIndex = '1'; // Ensure lower z-index
+                        c.style.visibility = 'hidden'; // Hide completely to prevent shadow stacking
+                    }
+                });
+                
+                // Reset the expanding capsule's positioning
+                capsule.style.position = 'relative';
+                capsule.style.left = 'auto';
+                capsule.style.right = 'auto';
+                capsule.style.transform = 'none';
+                capsule.style.margin = '0 auto';
+                
+                // Add expanded classes
                 vault.classList.add('has-expanded-capsule');
                 capsule.classList.add('expanded');
-                indicators.classList.add('hidden');
+                
+                // Force layout recalculation
+                void capsule.offsetWidth;
+                
+                // Show back arrow after layout is set
                 backArrow.classList.add('visible');
             }, CONSTANTS.EXPAND_DURATION);
         }
 
         function collapseCapsule(capsule, vault, indicators, backArrow) {
             const capsuleIndex = Array.from(vault.children).indexOf(capsule);
+            
+            // Reset all capsule styles
+            Array.from(vault.children).forEach(c => {
+                c.style.position = '';
+                c.style.opacity = '';
+                c.style.pointerEvents = '';
+                c.style.left = '';
+                c.style.right = '';
+                c.style.transform = '';
+                c.style.margin = '';
+                c.style.zIndex = ''; // Reset z-index
+                c.style.visibility = ''; // Reset visibility
+            });
+            
+            // Reset vault styles
+            vault.style.display = '';
+            vault.style.justifyContent = '';
+            vault.style.alignItems = '';
             
             vault.classList.remove('has-expanded-capsule');
             capsule.classList.remove('expanded');
@@ -533,6 +607,11 @@
             // Reset the vault container size
             const vaultContainer = document.querySelector('.vault-container');
             vaultContainer.style.maxWidth = '800px';
+            
+            // Reset padding to original values
+            vault.style.paddingLeft = 'calc(50% - 125px)';
+            vault.style.paddingRight = 'calc(50% - 125px)';
+            vault.style.gap = '16px';
             
             // Remove the body class
             document.body.classList.remove('has-expanded-capsule');
