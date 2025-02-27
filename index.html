@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Multi-User Tag Writer</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --success: #10b981;
+            --danger: #ef4444;
+            --gray: #9ca3af;
+            --light-gray: #f3f4f6;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+        
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            max-width: 800px; 
+            margin: 0 auto; 
+            padding: 20px;
+            background-color: #f9fafb;
+            color: #1f2937;
+        }
+        
+        h1, h2, h3 {
+            color: var(--primary);
+            margin-bottom: 1rem;
+        }
+        
+        .card {
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group { 
+            margin-bottom: 15px; 
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 500;
+        }
+        
+        input, textarea { 
+            width: 100%; 
+            padding: 10px;
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            font-family: inherit;
+            font-size: inherit;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        button {
+            padding: 10px 16px;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: 500;
+            margin-right: 8px;
+            margin-bottom: 8px;
+            transition: background-color 0.2s;
+        }
+        
+        button:hover, button:focus {
+            background-color: var(--primary-dark);
+        }
+        
+        button.secondary {
+            background-color: var(--light-gray);
+            color: #1f2937;
+        }
+        
+        button.secondary:hover, button.secondary:focus {
+            background-color: #e5e7eb;
+        }
+        
+        button.danger {
+            background-color: var(--danger);
+        }
+        
+        .reader-list {
+            border: 1px solid #e5e7eb;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+        
+        .reader-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .reader-item:last-child {
+            border-bottom: none;
+        }
+        
+        .reader-info {
+            flex: 1;
+        }
+        
+        .reader-actions {
+            display: flex;
+        }
+        
+        .reader-actions button {
+            margin: 0 0 0 8px;
+            padding: 6px 12px;
+        }
+        
+        .tag-preview {
+            background-color: var(--light-gray);
+            padding: 15px;
+            border-radius: 4px;
+            margin-top: 20px;
+            white-space: pre-wrap;
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 14px;
+        }
+        
+        .token-display {
+            font-family: monospace;
+            color: var(--primary);
+            font-weight: 500;
+        }
+        
+        .tabs {
+            display: flex;
+            margin-bottom: 20px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .tab {
+            padding: 10px 20px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+        }
+        
+        .tab.active {
+            border-bottom-color: var(--primary);
+            color: var(--primary);
+            font-weight: 500;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .status {
+            background-color: #f0fdf4;
+            border-left: 4px solid var(--success);
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        
+        .error {
+            background-color: #fef2f2;
+            border-left: 4px solid var(--danger);
+            padding: 10px 15px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        
+        .scanning-animation {
+            text-align: center;
+            padding: 30px;
+            display: none;
+        }
+        
+        .pulse {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: rgba(37, 99, 235, 0.1);
+            margin: 0 auto 20px;
+            position: relative;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(0.5);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>NFC Multi-User Tag Writer</h1>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="basic">Basic Mode</div>
+        <div class="tab" data-tab="contacts">Contacts Manager</div>
+        <div class="tab" data-tab="advanced">Advanced Settings</div>
+    </div>
+    
+    <div id="status-message"></div>
+    
+    <div id="basic-tab" class="tab-content active">
+        <div class="card">
+            <h2>Create NFC Tag</h2>
+            
+            <div class="form-group">
+                <label for="ownerToken">Owner Token:</label>
+                <div style="display:flex;">
+                    <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner">
+                    <button onclick="generateOwnerToken()" style="margin-left:8px;">Generate</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <h3>Readers</h3>
+                <div id="readersList" class="reader-list"></div>
+                <button onclick="addReader()">Add Reader</button>
+                <button class="secondary" onclick="loadSavedReaders()">Load Saved Readers</button>
+            </div>
+            
+            <button onclick="prepareNFCTag()">Write to NFC Tag</button>
+            <button class="secondary" onclick="showTagPreview()">Show Preview</button>
+        </div>
+        
+        <div id="tagPreview" class="tag-preview" style="display: none;"></div>
+        
+        <div id="scanning-animation" class="scanning-animation">
+            <div class="pulse"></div>
+            <p>Tap your NFC tag to write data...</p>
+        </div>
+    </div>
+    
+    <div id="contacts-tab" class="tab-content">
+        <div class="card">
+            <h2>Manage Contacts</h2>
+            
+            <div class="form-group">
+                <label for="contactOwnerToken">Your Owner Token:</label>
+                <input type="text" id="contactOwnerToken" placeholder="Enter your owner token to unlock contacts">
+                <button onclick="unlockContacts()" style="margin-top: 8px;">Unlock Contacts</button>
+            </div>
+            
+            <div id="contacts-container" style="display: none;">
+                <div class="form-group">
+                    <h3>Reader Contacts</h3>
+                    <div id="contactsList" class="reader-list"></div>
+                    <button onclick="addContact()">Add Contact</button>
+                    <button class="secondary" onclick="saveContacts()">Save Contacts</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div id="advanced-tab" class="tab-content">
+        <div class="card">
+            <h2>Advanced Settings</h2>
+            
+            <div class="form-group">
+                <label for="tokenFormat">Token Format:</label>
+                <select id="tokenFormat">
+                    <option value="readable">Human Readable (ABCD-1234-XYZ9)</option>
+                    <option value="hex">Hexadecimal (a1b2c3d4e5f6...)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="tokenLength">Token Length:</label>
+                <select id="tokenLength">
+                    <option value="12">12 characters</option>
+                    <option value="16">16 characters</option>
+                    <option value="24">24 characters</option>
+                </select>
+            </div>
+            
+            <button onclick="saveSettings()">Save Settings</button>
+            <button class="secondary" onclick="resetSettings()">Reset to Defaults</button>
+        </div>
+    </div>
+    
+    <script>
+        // App state
+        let readers = [];
+        let contacts = [];
+        let currentOwnerToken = null;
+        let settings = {
+            tokenFormat: 'readable',
+            tokenLength: '12'
+        };
+        
+        // Initialize settings from localStorage
+        function initSettings() {
+            const savedSettings = localStorage.getItem('nfc_writer_settings');
+            if (savedSettings) {
+                try {
+                    settings = JSON.parse(savedSettings);
+                    
+                    // Apply settings to UI
+                    document.getElementById('tokenFormat').value = settings.tokenFormat;
+                    document.getElementById('tokenLength').value = settings.tokenLength;
+                } catch (e) {
+                    console.error('Failed to parse settings', e);
+                }
+            }
+        }
+        
+        // Save settings
+        function saveSettings() {
+            settings.tokenFormat = document.getElementById('tokenFormat').value;
+            settings.tokenLength = document.getElementById('tokenLength').value;
+            
+            localStorage.setItem('nfc_writer_settings', JSON.stringify(settings));
+            showStatus('Settings saved successfully');
+        }
+        
+        // Reset settings
+        function resetSettings() {
+            settings = {
+                tokenFormat: 'readable',
+                tokenLength: '12'
+            };
+            
+            document.getElementById('tokenFormat').value = settings.tokenFormat;
+            document.getElementById('tokenLength').value = settings.tokenLength;
+            
+            localStorage.setItem('nfc_writer_settings', JSON.stringify(settings));
+            showStatus('Settings reset to defaults');
+        }
+        
+        // Tab functionality
+        function setupTabs() {
+            const tabs = document.querySelectorAll('.tab');
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    
+                    const tabContents = document.querySelectorAll('.tab-content');
+                    tabContents.forEach(content => content.classList.remove('active'));
+                    
+                    const tabName = tab.getAttribute('data-tab');
+                    document.getElementById(`${tabName}-tab`).classList.add('active');
+                });
+            });
+        }
+        
+        // Status message
+        function showStatus(message, isError = false) {
+            const statusElement = document.getElementById('status-message');
+            statusElement.innerHTML = `<div class="${isError ? 'error' : 'status'}">${message}</div>`;
+            
+            // Clear after 5 seconds
+            setTimeout(() => {
+                statusElement.innerHTML = '';
+            }, 5000);
+        }
+        
+        // Generate token based on settings
+        function generateToken() {
+            const format = settings.tokenFormat;
+            const length = parseInt(settings.tokenLength);
+            
+            if (format === 'readable') {
+                const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+                let result = '';
+                for (let i = 0; i < length; i++) {
+                    if (i > 0 && i % 4 === 0) result += '-';
+                    result += chars.charAt(Math.floor(Math.random() * chars.length));
+                }
+                return result;
+            } else {
+                return CryptoJS.lib.WordArray.random(length / 2).toString();
+            }
+        }
+        
+        // Generate owner token
+        function generateOwnerToken() {
+            document.getElementById('ownerToken').value = generateToken();
+        }
+        
+        // Add a new reader to current session
+        function addReader() {
+            const readerId = prompt("Enter Reader ID:");
+            if (!readerId) return;
+            
+            // Ask if they want to generate or enter a token
+            const generateOrEnter = confirm("Click OK to auto-generate a token, or Cancel to enter manually");
+            
+            let readerToken;
+            if (generateOrEnter) {
+                readerToken = generateToken();
+            } else {
+                readerToken = prompt("Enter Reader Token:");
+                if (!readerToken) return;
+            }
+            
+            readers.push({ id: readerId, token: readerToken });
+            updateReadersList();
+            showStatus(`Reader "${readerId}" added`);
+        }
+        
+        // Update the readers list in the UI
+        function updateReadersList() {
+            const list = document.getElementById('readersList');
+            list.innerHTML = '';
+            
+            if (readers.length === 0) {
+                list.innerHTML = '<p>No readers added yet.</p>';
+                return;
+            }
+            
+            readers.forEach((reader, index) => {
+                const readerDiv = document.createElement('div');
+                readerDiv.className = 'reader-item';
+                readerDiv.innerHTML = `
+                    <div class="reader-info">
+                        <strong>${reader.id}</strong><br>
+                        <span class="token-display">${reader.token}</span>
+                    </div>
+                    <div class="reader-actions">
+                        <button class="danger" onclick="removeReader(${index})">Remove</button>
+                    </div>
+                `;
+                list.appendChild(readerDiv);
+            });
+        }
+        
+        // Remove a reader
+        function removeReader(index) {
+            const confirmRemove = confirm(`Remove reader "${readers[index].id}"?`);
+            if (confirmRemove) {
+                readers.splice(index, 1);
+                updateReadersList();
+                showStatus('Reader removed');
+            }
+        }
+        
+        // Show preview of the NFC tag data
+        function showTagPreview() {
+            const ownerToken = document.getElementById('ownerToken').value;
+
+            if (!ownerToken) {
+                showStatus('Owner token is required', true);
+                return;
+            }
+
+            // Create NFC tag payload
+            const nfcPayload = {
+                owner: {
+                    id: "owner",
+                    token: ownerToken
+                },
+                readers: readers.map(reader => ({
+                    id: reader.id,
+                    token: reader.token
+                }))
+            };
+
+            const previewElement = document.getElementById('tagPreview');
+            previewElement.textContent = JSON.stringify(nfcPayload, null, 2);
+            previewElement.style.display = 'block';
+        }
+        
+        // Write data to NFC tag
+        async function prepareNFCTag() {
+            const ownerToken = document.getElementById('ownerToken').value;
+
+            if (!ownerToken) {
+                showStatus('Owner token is required', true);
+                return;
+            }
+
+            // Create NFC tag payload
+            const nfcPayload = {
+                owner: {
+                    id: "owner",
+                    token: ownerToken
+                },
+                readers: readers.map(reader => ({
+                    id: reader.id,
+                    token: reader.token
+                }))
+            };
+            
+            // Show scanning animation
+            document.getElementById('scanning-animation').style.display = 'block';
+
+            // Check for NFC support
+            if ('NDEFReader' in window) {
+                try {
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+
+                    // Write to NFC tag
+                    await ndef.write({
+                        records: [{
+                            recordType: "text",
+                            data: JSON.stringify(nfcPayload)
+                        }]
+                    });
+
+                    document.getElementById('scanning-animation').style.display = 'none';
+                    showStatus(`NFC Tag written successfully. Owner: ${ownerToken}, Readers: ${readers.map(r => r.id).join(', ')}`);
+                } catch (error) {
+                    document.getElementById('scanning-animation').style.display = 'none';
+                    showStatus(`Error writing NFC tag: ${error}`, true);
+                }
+            } else {
+                document.getElementById('scanning-animation').style.display = 'none';
+                showStatus("NFC not supported on this device", true);
+                showTagPreview();
+            }
+        }
+        
+        // ENCRYPTED CONTACTS MANAGEMENT
+        
+        // Store contacts encrypted with owner's token
+        async function storeEncryptedContacts(contacts, ownerToken) {
+            // Create a contacts object
+            const contactsData = {
+                readers: contacts,
+                timestamp: Date.now()
+            };
+            
+            // Encrypt the entire contacts list with the owner's token
+            const encryptedData = CryptoJS.AES.encrypt(
+                JSON.stringify(contactsData),
+                ownerToken
+            ).toString();
+            
+            // Store in localforage
+            await localforage.setItem('encrypted_contacts', encryptedData);
+            
+            return true;
+        }
+
+        // Decrypt contacts using the owner's token
+        async function loadEncryptedContacts(ownerToken) {
+            try {
+                // Get encrypted data
+                const encryptedData = await localforage.getItem('encrypted_contacts');
+                
+                if (!encryptedData) {
+                    return { readers: [] };
+                }
+                
+                // Decrypt data
+                const decryptedBytes = CryptoJS.AES.decrypt(encryptedData, ownerToken);
+                const contactsData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+                
+                return contactsData;
+            } catch (error) {
+                console.error('Failed to decrypt contacts:', error);
+                showStatus('Failed to decrypt contacts. Is your token correct?', true);
+                return { readers: [] };
+            }
+        }
+        
+        // Unlock contacts with owner token
+        async function unlockContacts() {
+            const ownerToken = document.getElementById('contactOwnerToken').value;
+            
+            if (!ownerToken) {
+                showStatus('Owner token is required', true);
+                return;
+            }
+            
+            try {
+                const contactsData = await loadEncryptedContacts(ownerToken);
+                contacts = contactsData.readers || [];
+                currentOwnerToken = ownerToken;
+                
+                // Show contacts container
+                document.getElementById('contacts-container').style.display = 'block';
+                
+                // Update contacts list
+                updateContactsList();
+                
+                showStatus('Contacts unlocked successfully');
+            } catch (error) {
+                showStatus('Failed to unlock contacts', true);
+                console.error('Error unlocking contacts:', error);
+            }
+        }
+        
+        // Add a new contact
+        function addContact() {
+            if (!currentOwnerToken) {
+                showStatus('Please unlock contacts first', true);
+                return;
+            }
+            
+            const contactId = prompt("Enter Contact ID:");
+            if (!contactId) return;
+            
+            // Ask if they want to generate or enter a token
+            const generateOrEnter = confirm("Click OK to auto-generate a token, or Cancel to enter manually");
+            
+            let contactToken;
+            if (generateOrEnter) {
+                contactToken = generateToken();
+            } else {
+                contactToken = prompt("Enter Contact Token:");
+                if (!contactToken) return;
+            }
+            
+            contacts.push({ id: contactId, token: contactToken });
+            updateContactsList();
+            showStatus(`Contact "${contactId}" added`);
+        }
+        
+        // Update contacts list in the UI
+        function updateContactsList() {
+            const list = document.getElementById('contactsList');
+            list.innerHTML = '';
+            
+            if (contacts.length === 0) {
+                list.innerHTML = '<p>No contacts saved yet.</p>';
+                return;
+            }
+            
+            contacts.forEach((contact, index) => {
+                const contactDiv = document.createElement('div');
+                contactDiv.className = 'reader-item';
+                contactDiv.innerHTML = `
+                    <div class="reader-info">
+                        <strong>${contact.id}</strong><br>
+                        <span class="token-display">${contact.token}</span>
+                    </div>
+                    <div class="reader-actions">
+                        <button onclick="useContact(${index})">Use</button>
+                        <button class="danger" onclick="removeContact(${index})">Remove</button>
+                    </div>
+                `;
+                list.appendChild(contactDiv);
+            });
+        }
+        
+        // Remove a contact
+        function removeContact(index) {
+            const confirmRemove = confirm(`Remove contact "${contacts[index].id}"?`);
+            if (confirmRemove) {
+                contacts.splice(index, 1);
+                updateContactsList();
+                showStatus('Contact removed');
+            }
+        }
+        
+        // Use a contact in the main interface
+        function useContact(index) {
+            const contact = contacts[index];
+            
+            // Check if this contact is already in readers
+            const existingIndex = readers.findIndex(reader => reader.id === contact.id);
+            
+            if (existingIndex !== -1) {
+                readers[existingIndex] = contact; // Update
+            } else {
+                readers.push(contact); // Add
+            }
+            
+            updateReadersList();
+            
+            // Switch to basic tab
+            document.querySelector('.tab[data-tab="basic"]').click();
+            
+            showStatus(`Contact "${contact.id}" added to readers`);
+        }
+        
+        // Save current contacts
+        async function saveContacts() {
+            if (!currentOwnerToken) {
+                showStatus('Please unlock contacts first', true);
+                return;
+            }
+            
+            try {
+                await storeEncryptedContacts(contacts, currentOwnerToken);
+                showStatus('Contacts saved successfully');
+            } catch (error) {
+                showStatus('Failed to save contacts', true);
+                console.error('Error saving contacts:', error);
+            }
+        }
+        
+        // Load saved readers into current session
+        async function loadSavedReaders() {
+            const ownerToken = document.getElementById('ownerToken').value;
+            
+            if (!ownerToken) {
+                showStatus('Owner token is required', true);
+                return;
+            }
+            
+            try {
+                const contactsData = await loadEncryptedContacts(ownerToken);
+                
+                if (contactsData.readers && contactsData.readers.length > 0) {
+                    // Merge with existing readers, avoiding duplicates
+                    const existingIds = readers.map(r => r.id);
+                    const newReaders = contactsData.readers.filter(r => !existingIds.includes(r.id));
+                    
+                    readers = [...readers, ...newReaders];
+                    updateReadersList();
+                    
+                    showStatus(`Loaded ${newReaders.length} saved readers`);
+                } else {
+                    showStatus('No saved readers found');
+                }
+            } catch (error) {
+                showStatus('Failed to load saved readers', true);
+                console.error('Error loading readers:', error);
+            }
+        }
+        
+        // Initialize
+        window.onload = function() {
+            setupTabs();
+            initSettings();
+            updateReadersList();
+            updateContactsList();
+        };
+    </script>
+</body>
+</html>
