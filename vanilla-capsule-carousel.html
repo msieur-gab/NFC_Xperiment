@@ -581,44 +581,73 @@
         function collapseCapsule(capsule, vault, indicators, backArrow) {
             const capsuleIndex = Array.from(vault.children).indexOf(capsule);
             
-            // Reset all capsule styles
-            Array.from(vault.children).forEach(c => {
-                c.style.position = '';
-                c.style.opacity = '';
-                c.style.pointerEvents = '';
-                c.style.left = '';
-                c.style.right = '';
-                c.style.transform = '';
-                c.style.margin = '';
-                c.style.zIndex = ''; // Reset z-index
-                c.style.visibility = ''; // Reset visibility
-            });
+            // First, ensure we're still centered on the current capsule
+            // Don't change scroll position yet
+            vault.style.scrollBehavior = 'auto';
             
-            // Reset vault styles
-            vault.style.display = '';
-            vault.style.justifyContent = '';
-            vault.style.alignItems = '';
-            
-            vault.classList.remove('has-expanded-capsule');
+            // Remove expanded class but keep position
             capsule.classList.remove('expanded');
-            indicators.classList.remove('hidden');
             backArrow.classList.remove('visible');
             
-            // Reset the vault container size
+            // Keep the capsule visible and centered during transition
+            capsule.style.opacity = '1';
+            capsule.style.position = 'relative';
+            capsule.style.zIndex = '5';
+            
+            // Reset vault container size
             const vaultContainer = document.querySelector('.vault-container');
             vaultContainer.style.maxWidth = '800px';
             
-            // Reset padding to original values
+            // Remove expanded class from vault but maintain centering temporarily
+            vault.classList.remove('has-expanded-capsule');
+            
+            // Reset padding to original values but keep the capsule centered
             vault.style.paddingLeft = 'calc(50% - 125px)';
             vault.style.paddingRight = 'calc(50% - 125px)';
             vault.style.gap = '16px';
             
-            // Remove the body class
-            document.body.classList.remove('has-expanded-capsule');
-
+            // Ensure other capsules remain hidden during transition
+            Array.from(vault.children).forEach(c => {
+                if (c !== capsule) {
+                    c.style.opacity = '0';
+                }
+            });
+            
+            // Wait for size transition to complete before repositioning
             setTimeout(() => {
+                // Now reset all capsule styles
+                Array.from(vault.children).forEach(c => {
+                    c.style.position = '';
+                    c.style.opacity = '';
+                    c.style.pointerEvents = '';
+                    c.style.left = '';
+                    c.style.right = '';
+                    c.style.transform = '';
+                    c.style.margin = '';
+                    c.style.zIndex = '';
+                    c.style.visibility = '';
+                });
+                
+                // Reset vault styles
+                vault.style.display = '';
+                vault.style.justifyContent = '';
+                vault.style.alignItems = '';
+                
+                // Remove the body class
+                document.body.classList.remove('has-expanded-capsule');
+                
+                // Re-enable smooth scrolling
+                vault.style.scrollBehavior = 'smooth';
+                
+                // Scroll to the correct index
                 scrollToIndex(vault, capsuleIndex);
-            }, CONSTANTS.COLLAPSE_DURATION);
+                
+                // Show indicators after scrolling is complete
+                setTimeout(() => {
+                    indicators.classList.remove('hidden');
+                }, 300);
+                
+            }, CONSTANTS.COLLAPSE_DURATION / 2); // Use half the collapse duration for better timing
         }
 
         document.addEventListener('DOMContentLoaded', renderVault);
