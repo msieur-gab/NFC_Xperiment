@@ -1,0 +1,1482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Secure Discussion Threads</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <style>
+        :root {
+            --primary: #2563eb;
+            --primary-dark: #1d4ed8;
+            --primary-light: #dbeafe;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --gray: #9ca3af;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f4;
+            color: var(--dark);
+            padding: 0;
+            margin: 0;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        
+        .app-container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 100%;
+        }
+        
+        .header {
+            background-color: var(--primary);
+            color: white;
+            padding: 16px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .header h1 {
+            font-size: 1.25rem;
+            font-weight: 600;
+        }
+        
+        .back-button {
+            background: none;
+            border: none;
+            color: white;
+            cursor: pointer;
+            font-size: 1.25rem;
+            display: none;
+        }
+        
+        .status-badge {
+            display: flex;
+            align-items: center;
+            font-size: 0.875rem;
+            padding: 4px 8px;
+            border-radius: 12px;
+            background-color: rgba(255,255,255,0.2);
+            cursor: pointer;
+        }
+        
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--danger);
+            margin-right: 6px;
+        }
+        
+        .status-indicator.active {
+            background-color: var(--success);
+        }
+        
+        .content {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            padding-bottom: 80px;
+        }
+        
+        .thread-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .thread-card {
+            background-color: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            position: relative;
+            transition: transform 0.2s;
+            display: flex;
+            flex-direction: column;
+            cursor: pointer;
+        }
+        
+        .thread-card:active {
+            transform: scale(0.98);
+        }
+        
+        .thread-card.locked {
+            background-color: #f3f4f6;
+            border-left: 4px solid var(--gray);
+        }
+        
+        .thread-title {
+            font-weight: 600;
+            font-size: 1.125rem;
+            margin-bottom: 8px;
+        }
+        
+        .thread-preview {
+            color: var(--gray);
+            font-size: 0.875rem;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+        
+        .thread-meta {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            align-items: center;
+        }
+        
+        .thread-date {
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+        
+        .thread-participants {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .participant-badge {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background-color: var(--primary-light);
+            color: var(--primary-dark);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        
+        .message-list {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        
+        .message-card {
+            background-color: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            word-break: break-word;
+            position: relative;
+        }
+        
+        .message-card.self {
+            background-color: #ecfdf5;
+            border-left: 4px solid var(--success);
+            align-self: flex-end;
+            max-width: 90%;
+        }
+        
+        .message-card.other {
+            background-color: #fffbeb;
+            border-left: 4px solid var(--warning);
+            align-self: flex-start;
+            max-width: 90%;
+        }
+        
+        .message-card .lock-icon {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            font-size: 1.25rem;
+            color: var(--gray);
+        }
+        
+        .message-author {
+            font-weight: 500;
+            font-size: 0.875rem;
+            margin-bottom: 4px;
+        }
+        
+        .message-time {
+            font-size: 0.75rem;
+            color: var(--gray);
+            margin-top: 4px;
+            text-align: right;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--gray);
+        }
+        
+        .empty-state p {
+            margin-top: 10px;
+            font-size: 0.875rem;
+        }
+        
+        .fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: none;
+            cursor: pointer;
+            z-index: 100;
+            transition: transform 0.2s, background-color 0.2s;
+        }
+        
+        .fab:active {
+            transform: scale(0.95);
+            background-color: var(--primary-dark);
+        }
+        
+        .bottom-sheet {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: white;
+            border-radius: 16px 16px 0 0;
+            transform: translateY(100%);
+            transition: transform 0.3s ease-out;
+            z-index: 1000;
+            padding: 20px;
+            box-shadow: 0 -4px 16px rgba(0,0,0,0.1);
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .bottom-sheet.active {
+            transform: translateY(0);
+        }
+        
+        .sheet-handle {
+            width: 40px;
+            height: 4px;
+            border-radius: 2px;
+            background-color: #e5e7eb;
+            margin: 0 auto 16px;
+        }
+        
+        .sheet-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 16px;
+        }
+        
+        input, textarea {
+            width: 100%;
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            padding: 12px;
+            font-family: inherit;
+            margin-bottom: 16px;
+        }
+        
+        textarea {
+            min-height: 120px;
+            resize: none;
+        }
+        
+        input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        
+        .form-group {
+            margin-bottom: 16px;
+        }
+        
+        .form-label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 500;
+        }
+        
+        .reader-selection {
+            margin-bottom: 16px;
+        }
+        
+        .reader-list {
+            border: 1px solid #e5e7eb;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        
+        .reader-item {
+            display: flex;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .reader-item:last-child {
+            border-bottom: none;
+        }
+        
+        .reader-checkbox {
+            margin-right: 12px;
+        }
+        
+        .button {
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-weight: 500;
+            border: none;
+            cursor: pointer;
+            transition: background-color 0.2s;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .button-primary {
+            background-color: var(--primary);
+            color: white;
+        }
+        
+        .button-primary:active {
+            background-color: var(--primary-dark);
+        }
+        
+        .button-secondary {
+            background-color: #e5e7eb;
+            color: var(--dark);
+        }
+        
+        .button-secondary:active {
+            background-color: #d1d5db;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .button-group .button {
+            flex: 1;
+        }
+        
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 900;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.3s, visibility 0.3s;
+        }
+        
+        .overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 100px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: var(--dark);
+            color: white;
+            padding: 12px 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            z-index: 2000;
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            text-align: center;
+            max-width: 90%;
+        }
+        
+        .toast.active {
+            opacity: 1;
+        }
+        
+        .nfc-animation {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .nfc-animation svg {
+            width: 120px;
+            height: 120px;
+            margin-bottom: 16px;
+        }
+        
+        .pulse {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: rgba(37, 99, 235, 0.1);
+            position: absolute;
+            animation: pulse 2s infinite;
+        }
+        
+        .compose-container {
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background-color: white;
+            padding: 12px;
+            display: flex;
+            gap: 8px;
+            box-shadow: 0 -2px 8px rgba(0,0,0,0.05);
+        }
+        
+        .compose-input {
+            flex: 1;
+            border: 1px solid #e5e7eb;
+            border-radius: 24px;
+            padding: 12px 16px;
+            font-size: 0.875rem;
+            max-height: 100px;
+            resize: none;
+        }
+        
+        .send-button {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            border: none;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .send-button:active {
+            background-color: var(--primary-dark);
+        }
+        
+        @keyframes pulse {
+            0% {
+                transform: scale(0.5);
+                opacity: 0.8;
+            }
+            100% {
+                transform: scale(1.5);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <header class="header">
+            <button id="backButton" class="back-button">←</button>
+            <h1 id="headerTitle">Discussion Threads</h1>
+            <div class="status-badge" id="statusBadge">
+                <span class="status-indicator" id="nfcStatus"></span>
+                <span id="statusText">Tap to scan NFC</span>
+            </div>
+        </header>
+        
+        <main class="content" id="mainContent">
+            <div class="thread-list" id="threadList">
+                <!-- Threads will be loaded here -->
+            </div>
+        </main>
+        
+        <button class="fab" id="createButton">+</button>
+    </div>
+    
+    <div class="overlay" id="overlay"></div>
+    
+    <div class="bottom-sheet" id="createThreadSheet">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">New Discussion Thread</h2>
+        
+        <div class="form-group">
+            <label class="form-label" for="threadTitle">Thread Title</label>
+            <input type="text" id="threadTitle" placeholder="Enter thread title">
+        </div>
+        
+        <div class="form-group">
+            <label class="form-label" for="threadDescription">Description (optional)</label>
+            <textarea id="threadDescription" placeholder="Describe the purpose of this thread"></textarea>
+        </div>
+        
+        <div class="reader-selection">
+            <h3 class="form-label">Select Readers</h3>
+            <div class="reader-list" id="selectableReaders">
+                <!-- Reader list will be populated here -->
+            </div>
+        </div>
+        
+        <div class="button-group">
+            <button class="button button-secondary" id="cancelThreadButton">Cancel</button>
+            <button class="button button-primary" id="createThreadButton">Create Thread</button>
+        </div>
+    </div>
+    
+    <div class="bottom-sheet" id="nfcSheet">
+        <div class="sheet-handle"></div>
+        <h2 class="sheet-title">Scan NFC Token</h2>
+        <div class="nfc-animation">
+            <div class="pulse"></div>
+            <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M9.5 14.5C9.5 15.33 10.17 16 11 16C11.83 16 12.5 15.33 12.5 14.5C12.5 13.67 11.83 13 11 13C10.17 13 9.5 13.67 9.5 14.5Z" fill="#2563EB"/>
+                <path d="M8.31 17.5C7.86 16.93 7.59 16.22 7.59 15.5C7.59 13.74 9.07 12.35 10.81 12.5C12.35 12.65 13.59 14.02 13.5 15.56C13.47 16.16 13.27 16.71 12.94 17.17M16.56 18.73C15.3 16.93 13.22 15.69 10.94 15.69C8.66 15.69 6.58 16.93 5.32 18.73M19.77 20.03C18.73 17.21 15.41 15.12 11.36 15.12C7.31 15.12 4 17.21 2.95 20.03" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M22 8.67C22 10.33 17.52 11.69 12 11.69C6.48 11.69 2 10.33 2 8.67C2 7.01 6.48 5.66 12 5.66C17.52 5.66 22 7.01 22 8.67Z" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 11.69V15.5" stroke="#2563EB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M22 8.67C22 7.01 17.52 5.66 12 5.66C6.48 5.66 2 7.01 2 8.67C2 10.33 6.48 11.69 12 11.69C17.52 11.69 22 10.33 22 8.67Z" fill="#E6EFFF"/>
+            </svg>
+            <p>Tap your NFC token to the back of your device</p>
+        </div>
+        <button class="button button-secondary" id="cancelNfcButton">Cancel</button>
+    </div>
+    
+    <div id="composeArea" class="compose-container" style="display: none;">
+        <textarea id="messageInput" class="compose-input" placeholder="Type a message..."></textarea>
+        <button id="sendButton" class="send-button">→</button>
+    </div>
+    
+    <div class="toast" id="toastMessage"></div>
+    
+    <script>
+    // Application
+    const SecureThreads = {
+        // DOM Elements
+        elements: {
+            nfcStatus: null,
+            statusText: null,
+            statusBadge: null,
+            headerTitle: null,
+            backButton: null,
+            mainContent: null,
+            threadList: null,
+            createButton: null,
+            createThreadSheet: null,
+            nfcSheet: null,
+            overlay: null,
+            threadTitle: null,
+            threadDescription: null,
+            selectableReaders: null,
+            createThreadButton: null,
+            cancelThreadButton: null,
+            cancelNfcButton: null,
+            composeArea: null,
+            messageInput: null,
+            sendButton: null,
+            toastMessage: null
+        },
+        
+        // State
+        state: {
+            currentNFCKey: null,
+            currentNFCData: null,
+            pendingAction: null,
+            currentView: 'threads', // 'threads' or 'thread'
+            currentThreadId: null,
+            isProcessing: false,
+            isNFCScanning: false
+        },
+        
+        /**
+         * Initialize the application
+         */
+        init() {
+            this.bindElements();
+            this.bindEvents();
+            this.loadThreads();
+            this.updateNFCStatus();
+        },
+        
+        /**
+         * Bind DOM elements to the elements object
+         */
+        bindElements() {
+            const elements = this.elements;
+            
+            elements.nfcStatus = document.getElementById('nfcStatus');
+            elements.statusText = document.getElementById('statusText');
+            elements.statusBadge = document.getElementById('statusBadge');
+            elements.headerTitle = document.getElementById('headerTitle');
+            elements.backButton = document.getElementById('backButton');
+            elements.mainContent = document.getElementById('mainContent');
+            elements.threadList = document.getElementById('threadList');
+            elements.createButton = document.getElementById('createButton');
+            elements.createThreadSheet = document.getElementById('createThreadSheet');
+            elements.nfcSheet = document.getElementById('nfcSheet');
+            elements.overlay = document.getElementById('overlay');
+            elements.threadTitle = document.getElementById('threadTitle');
+            elements.threadDescription = document.getElementById('threadDescription');
+            elements.selectableReaders = document.getElementById('selectableReaders');
+            elements.createThreadButton = document.getElementById('createThreadButton');
+            elements.cancelThreadButton = document.getElementById('cancelThreadButton');
+            elements.cancelNfcButton = document.getElementById('cancelNfcButton');
+            elements.composeArea = document.getElementById('composeArea');
+            elements.messageInput = document.getElementById('messageInput');
+            elements.sendButton = document.getElementById('sendButton');
+            elements.toastMessage = document.getElementById('toastMessage');
+        },
+        
+        /**
+         * Bind event listeners
+         */
+        bindEvents() {
+            const elements = this.elements;
+            
+            // NFC scan trigger
+            elements.statusBadge.addEventListener('click', () => this.startNFCScan());
+            
+            // Back button
+            elements.backButton.addEventListener('click', () => this.navigateToThreads());
+            
+            // Create thread button
+            elements.createButton.addEventListener('click', () => this.openCreateThreadSheet());
+            
+            // Create thread sheet buttons
+            elements.createThreadButton.addEventListener('click', () => this.createThread());
+            elements.cancelThreadButton.addEventListener('click', () => this.closeCreateThreadSheet());
+            
+            // NFC sheet button
+            elements.cancelNfcButton.addEventListener('click', () => this.closeNFCSheet());
+            
+            // Send message button
+            elements.sendButton.addEventListener('click', () => this.sendMessage());
+            
+            // Send on Enter key (but Shift+Enter for new line)
+            elements.messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            });
+            
+            // Handle clicking overlay to close sheets
+            elements.overlay.addEventListener('click', () => {
+                this.closeCreateThreadSheet();
+                this.closeNFCSheet();
+            });
+        },
+        
+        /**
+         * Show a toast message
+         * @param {string} message - The message to display
+         * @param {number} duration - Duration in milliseconds (default: 3000)
+         */
+        showToast(message, duration = 3000) {
+            const toast = this.elements.toastMessage;
+            toast.textContent = message;
+            toast.classList.add('active');
+            
+            setTimeout(() => {
+                toast.classList.remove('active');
+            }, duration);
+        },
+        
+        /**
+         * Update the NFC status indicator
+         */
+        updateNFCStatus() {
+            const { nfcStatus, statusText } = this.elements;
+            const { currentNFCKey } = this.state;
+            
+            if (currentNFCKey) {
+                nfcStatus.classList.add('active');
+                statusText.textContent = 'NFC Active';
+            } else {
+                nfcStatus.classList.remove('active');
+                statusText.textContent = 'Tap to scan NFC';
+            }
+        },
+        
+        /**
+         * Load and display all threads
+         */
+        async loadThreads() {
+            const { threadList } = this.elements;
+            
+            // Clear existing threads
+            threadList.innerHTML = '';
+            
+            try {
+                // Get all thread keys
+                const keys = await localforage.keys();
+                const threadKeys = keys.filter(key => key.startsWith('thread_'));
+                
+                // Handle empty state
+                if (threadKeys.length === 0) {
+                    threadList.innerHTML = `
+                        <div class="empty-state">
+                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                                <path d="M8 12H16M8 16H13M9 4H15L19 8V20H5V4H9Z" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            <p>No discussion threads yet. Tap + to create one.</p>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                // Create a document fragment for better performance
+                const fragment = document.createDocumentFragment();
+                
+                // Load each thread
+                for (const key of threadKeys) {
+                    const threadData = await localforage.getItem(key);
+                    if (!threadData) continue;
+                    
+                    const threadCard = document.createElement('div');
+                    threadCard.className = 'thread-card';
+                    threadCard.dataset.threadId = key;
+                    
+                    if (!this.state.currentNFCKey) {
+                        // Locked state if no NFC key
+                        threadCard.classList.add('locked');
+                        threadCard.innerHTML = `
+                            <div class="thread-title">Encrypted Thread</div>
+                            <div class="thread-preview">Scan your NFC token to unlock this thread</div>
+                            <div class="lock-icon">🔒</div>
+                        `;
+                    } else {
+                        // Check if current user has access
+                        const { currentNFCKey } = this.state;
+                        const canAccess = threadData.encryptedKeys && 
+                                         threadData.encryptedKeys[currentNFCKey];
+                        
+                        if (canAccess) {
+                            try {
+                                // Decrypt the thread key using reader's token
+                                const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                                const threadKey = CryptoJS.AES.decrypt(
+                                    encryptedThreadKey,
+                                    currentNFCKey
+                                ).toString(CryptoJS.enc.Utf8);
+                                
+                                // Decrypt thread data
+                                const decryptedData = JSON.parse(CryptoJS.AES.decrypt(
+                                    threadData.encryptedData,
+                                    threadKey
+                                ).toString(CryptoJS.enc.Utf8));
+                                
+                                // Show thread details
+                                threadCard.innerHTML = `
+                                    <div class="thread-title">${this.escapeHTML(decryptedData.title)}</div>
+                                    <div class="thread-preview">${this.escapeHTML(decryptedData.description || 'No description')}</div>
+                                    <div class="thread-meta">
+                                        <div class="thread-date">${new Date(threadData.createdAt).toLocaleDateString()}</div>
+                                        <div class="thread-participants">
+                                            ${this.generateParticipantBadges(threadData.allowedReaders)}
+                                        </div>
+                                    </div>
+                                `;
+                            } catch (e) {
+                                console.error('Error decrypting thread:', e);
+                                threadCard.classList.add('locked');
+                                threadCard.innerHTML = `
+                                    <div class="thread-title">Encrypted Thread</div>
+                                    <div class="thread-preview">Error decrypting this thread</div>
+                                    <div class="lock-icon">🔒</div>
+                                `;
+                            }
+                        } else {
+                            // No access
+                            threadCard.classList.add('locked');
+                            threadCard.innerHTML = `
+                                <div class="thread-title">Encrypted Thread</div>
+                                <div class="thread-preview">You don't have permission to view this thread</div>
+                                <div class="lock-icon">🔒</div>
+                            `;
+                        }
+                    }
+                    
+                    // Add click event using data attribute instead of closures
+                    threadCard.addEventListener('click', this.handleThreadClick.bind(this));
+                    
+                    fragment.appendChild(threadCard);
+                }
+                
+                // Append all threads at once
+                threadList.appendChild(fragment);
+                
+            } catch (error) {
+                console.error('Error loading threads:', error);
+                this.showToast('Error loading threads');
+                threadList.innerHTML = `
+                    <div class="empty-state">
+                        <p>Error loading threads. Please try again.</p>
+                    </div>
+                `;
+            }
+        },
+        
+        /**
+         * Handle thread click event
+         * @param {Event} e - Click event
+         */
+        handleThreadClick(e) {
+            const card = e.currentTarget;
+            const threadId = card.dataset.threadId;
+            
+            if (!threadId) return;
+            
+            // If thread is locked, prompt for NFC scan
+            if (card.classList.contains('locked')) {
+                this.showToast('Scan your NFC token to unlock this thread');
+                this.startNFCScan();
+                return;
+            }
+            
+            // Open thread if unlocked
+            this.openThread(threadId);
+        },
+        
+        /**
+         * Open a specific thread and display its messages
+         * @param {string} threadId - The ID of the thread to open
+         */
+        async openThread(threadId) {
+            // Prevent multiple opens or if already on this thread
+            if (this.state.isProcessing || 
+               (this.state.currentView === 'thread' && this.state.currentThreadId === threadId)) {
+                return;
+            }
+            
+            this.state.isProcessing = true;
+            
+            try {
+                // Update app state
+                this.state.currentView = 'thread';
+                this.state.currentThreadId = threadId;
+                
+                // Update UI
+                const { headerTitle, backButton, createButton, composeArea, mainContent } = this.elements;
+                
+                headerTitle.textContent = 'Loading...';
+                backButton.style.display = 'block';
+                createButton.style.display = 'none';
+                composeArea.style.display = 'flex';
+                
+                // Clear main content and create message container
+                mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
+                const messageContainer = document.getElementById('messageContainer');
+                
+                // Get thread data
+                const threadData = await localforage.getItem(threadId);
+                if (!threadData) {
+                    throw new Error('Thread not found');
+                }
+                
+                // Check for access
+                if (!threadData.encryptedKeys || !threadData.encryptedKeys[this.state.currentNFCKey]) {
+                    throw new Error('No permission to access this thread');
+                }
+                
+                // Decrypt thread key
+                const encryptedThreadKey = threadData.encryptedKeys[this.state.currentNFCKey];
+                const threadKey = CryptoJS.AES.decrypt(
+                    encryptedThreadKey,
+                    this.state.currentNFCKey
+                ).toString(CryptoJS.enc.Utf8);
+                
+                // Decrypt thread data
+                const decryptedData = JSON.parse(CryptoJS.AES.decrypt(
+                    threadData.encryptedData,
+                    threadKey
+                ).toString(CryptoJS.enc.Utf8));
+                
+                // Update header title
+                headerTitle.textContent = decryptedData.title;
+                
+                // Load thread messages
+                const messages = await this.loadThreadMessages(threadId, threadKey);
+                
+                // Display messages
+                if (messages.length === 0) {
+                    messageContainer.innerHTML = `
+                        <div class="empty-state">
+                            <p>No messages yet. Start the conversation!</p>
+                        </div>
+                    `;
+                } else {
+                    // Create a document fragment for better performance
+                    const fragment = document.createDocumentFragment();
+                    
+                    for (const message of messages) {
+                        const messageCard = document.createElement('div');
+                        const isSelf = message.senderId === this.state.currentNFCKey;
+                        
+                        // Set classes based on sender
+                        messageCard.className = `message-card ${isSelf ? 'self' : 'other'}`;
+                        
+                        // Create message content
+                        messageCard.innerHTML = `
+                            <div class="message-author">${this.escapeHTML(message.senderName || (isSelf ? 'You' : 'User'))}</div>
+                            <div class="message-content">${this.escapeHTML(message.text)}</div>
+                            <div class="message-time">${new Date(message.timestamp).toLocaleTimeString()}</div>
+                        `;
+                        
+                        fragment.appendChild(messageCard);
+                    }
+                    
+                    messageContainer.appendChild(fragment);
+                    
+                    // Scroll to bottom
+                    setTimeout(() => {
+                        messageContainer.scrollTop = messageContainer.scrollHeight;
+                    }, 100);
+                }
+            } catch (error) {
+                console.error('Error opening thread:', error);
+                this.showToast(error.message || 'Error opening thread');
+                this.navigateToThreads();
+            } finally {
+                this.state.isProcessing = false;
+            }
+        },
+        
+        /**
+         * Load messages for a specific thread
+         * @param {string} threadId - The ID of the thread
+         * @param {string} threadKey - Decryption key for the thread
+         * @returns {Array} - Array of decrypted messages
+         */
+        async loadThreadMessages(threadId, threadKey) {
+            try {
+                // Get all message keys for this thread
+                const keys = await localforage.keys();
+                const messageKeys = keys.filter(key => key.startsWith(`message_${threadId}_`));
+                
+                // Array to store decrypted messages
+                const decryptedMessages = [];
+                
+                // Process each message
+                for (const key of messageKeys) {
+                    try {
+                        const encryptedMessage = await localforage.getItem(key);
+                        if (!encryptedMessage) continue;
+                        
+                        // Decrypt message content
+                        const messageData = JSON.parse(CryptoJS.AES.decrypt(
+                            encryptedMessage.encryptedContent,
+                            threadKey
+                        ).toString(CryptoJS.enc.Utf8));
+                        
+                        // Add message metadata
+                        decryptedMessages.push({
+                            id: key,
+                            text: messageData.text,
+                            senderName: messageData.senderName,
+                            senderId: encryptedMessage.senderId,
+                            timestamp: encryptedMessage.timestamp
+                        });
+                    } catch (e) {
+                        console.error('Error decrypting message:', e);
+                        // Skip failed messages
+                    }
+                }
+                
+                // Sort by timestamp
+                return decryptedMessages.sort((a, b) => a.timestamp - b.timestamp);
+            } catch (error) {
+                console.error('Error loading messages:', error);
+                return [];
+            }
+        },
+        
+        /**
+         * Navigate back to the threads list
+         */
+        navigateToThreads() {
+            // Prevent navigation if already on threads view
+            if (this.state.currentView === 'threads') return;
+            
+            // Update app state
+            this.state.currentView = 'threads';
+            this.state.currentThreadId = null;
+            
+            // Update UI
+            const { headerTitle, backButton, createButton, composeArea, mainContent } = this.elements;
+            
+            headerTitle.textContent = 'Discussion Threads';
+            backButton.style.display = 'none';
+            createButton.style.display = 'block';
+            composeArea.style.display = 'none';
+            
+            // Reset and reload threads
+            mainContent.innerHTML = '<div class="thread-list" id="threadList"></div>';
+            this.elements.threadList = document.getElementById('threadList');
+            this.loadThreads();
+        },
+        
+        /**
+         * Open the thread creation sheet
+         */
+        openCreateThreadSheet() {
+            // Require NFC authentication
+            if (!this.state.currentNFCKey) {
+                this.showToast('Please scan NFC token first');
+                this.state.pendingAction = 'create_thread';
+                this.startNFCScan();
+                return;
+            }
+            
+            // Clear form
+            const { threadTitle, threadDescription } = this.elements;
+            threadTitle.value = '';
+            threadDescription.value = '';
+            
+            // Populate reader selection
+            this.populateReaderList();
+            
+            // Show sheet
+            this.elements.createThreadSheet.classList.add('active');
+            this.elements.overlay.classList.add('active');
+        },
+        
+        /**
+         * Close the thread creation sheet
+         */
+        closeCreateThreadSheet() {
+            this.elements.createThreadSheet.classList.remove('active');
+            this.elements.overlay.classList.remove('active');
+        },
+        
+        /**
+         * Populate the reader selection list
+         */
+        populateReaderList() {
+            const { selectableReaders } = this.elements;
+            const { currentNFCData, currentNFCKey } = this.state;
+            
+            // Clear existing content
+            selectableReaders.innerHTML = '';
+            
+            if (!currentNFCData || !currentNFCData.readers || currentNFCData.readers.length === 0) {
+                selectableReaders.innerHTML = '<div class="reader-item">No readers available on your NFC tag</div>';
+                return;
+            }
+            
+            // Add owner first (always selected and disabled)
+            const ownerItem = document.createElement('div');
+            ownerItem.className = 'reader-item';
+            ownerItem.innerHTML = `
+                <input type="checkbox" id="owner-checkbox" class="reader-checkbox" checked disabled>
+                <label for="owner-checkbox">
+                    <strong>Owner (You)</strong><br>
+                    <span class="token-display">${this.truncateToken(currentNFCKey)}</span>
+                </label>
+            `;
+            selectableReaders.appendChild(ownerItem);
+            
+            // Add other readers
+            currentNFCData.readers.forEach((reader, index) => {
+                const readerId = `reader-${index}`;
+                const readerItem = document.createElement('div');
+                readerItem.className = 'reader-item';
+                readerItem.innerHTML = `
+                    <input type="checkbox" id="${readerId}" class="reader-checkbox" 
+                           data-reader-id="${this.escapeHTML(reader.id)}" 
+                           data-reader-token="${this.escapeHTML(reader.token)}">
+                    <label for="${readerId}">
+                        <strong>${this.escapeHTML(reader.id)}</strong><br>
+                        <span class="token-display">${this.truncateToken(reader.token)}</span>
+                    </label>
+                `;
+                selectableReaders.appendChild(readerItem);
+            });
+        },
+        
+        /**
+         * Create a new thread
+         */
+        async createThread() {
+            // Prevent multiple submissions
+            if (this.state.isProcessing) return;
+            this.state.isProcessing = true;
+            
+            try {
+                const { threadTitle, threadDescription } = this.elements;
+                const title = threadTitle.value.trim();
+                
+                // Validate input
+                if (!title) {
+                    this.showToast('Thread title is required');
+                    this.state.isProcessing = false;
+                    return;
+                }
+                
+                // Get selected readers
+                const selectedReaders = [];
+                const checkboxes = this.elements.selectableReaders.querySelectorAll('.reader-checkbox');
+                
+                // Always add owner
+                selectedReaders.push(this.state.currentNFCKey);
+                
+                // Add selected readers
+                checkboxes.forEach(checkbox => {
+                    if (checkbox.checked && !checkbox.disabled && checkbox.dataset.readerToken) {
+                        selectedReaders.push(checkbox.dataset.readerToken);
+                    }
+                });
+                
+                // Generate thread ID
+                const threadId = `thread_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+                
+                // Create thread data
+                const threadData = {
+                    title: title,
+                    description: threadDescription.value.trim(),
+                    createdBy: this.state.currentNFCKey,
+                    createdAt: Date.now()
+                };
+                
+                // Generate a unique key for this thread (that all readers will use)
+                const threadKey = CryptoJS.SHA256(threadId).toString().substring(0, 32);
+                
+                // Encrypt the thread data with the thread key
+                const encryptedData = CryptoJS.AES.encrypt(
+                    JSON.stringify(threadData),
+                    threadKey
+                ).toString();
+                
+                // Create per-reader encrypted keys
+                const encryptedKeys = {};
+                
+                for (const readerToken of selectedReaders) {
+                    encryptedKeys[readerToken] = CryptoJS.AES.encrypt(
+                        threadKey,
+                        readerToken
+                    ).toString();
+                }
+                
+                // Store thread
+                await localforage.setItem(threadId, {
+                    encryptedData,
+                    encryptedKeys,
+                    allowedReaders: selectedReaders,
+                    createdAt: Date.now()
+                });
+                
+                // Success
+                this.showToast('Thread created successfully');
+                this.closeCreateThreadSheet();
+                this.loadThreads();
+            } catch (error) {
+                console.error('Error creating thread:', error);
+                this.showToast('Error creating thread');
+            } finally {
+                this.state.isProcessing = false;
+            }
+        },
+        
+        /**
+         * Send a message in the current thread
+         */
+        async sendMessage() {
+            // Verify we're in a thread view
+            if (this.state.currentView !== 'thread' || !this.state.currentThreadId) {
+                this.showToast('No active thread');
+                return;
+            }
+            
+            // Prevent multiple submissions
+            if (this.state.isProcessing) return;
+            
+            const { messageInput } = this.elements;
+            const messageText = messageInput.value.trim();
+            
+            if (!messageText) return;
+            
+            this.state.isProcessing = true;
+            
+            try {
+                // Get thread data
+                const threadData = await localforage.getItem(this.state.currentThreadId);
+                if (!threadData) {
+                    throw new Error('Thread not found');
+                }
+                
+                // Get thread key
+                const encryptedThreadKey = threadData.encryptedKeys[this.state.currentNFCKey];
+                const threadKey = CryptoJS.AES.decrypt(
+                    encryptedThreadKey,
+                    this.state.currentNFCKey
+                ).toString(CryptoJS.enc.Utf8);
+                
+                // Create message data
+                const messageData = {
+                    text: messageText,
+                    senderName: 'You',
+                };
+                
+                // Encrypt message with thread key
+                const encryptedContent = CryptoJS.AES.encrypt(
+                    JSON.stringify(messageData),
+                    threadKey
+                ).toString();
+                
+                // Generate message ID
+                const messageId = `message_${this.state.currentThreadId}_${Date.now()}`;
+                
+                // Store message
+                await localforage.setItem(messageId, {
+                    threadId: this.state.currentThreadId,
+                    encryptedContent,
+                    senderId: this.state.currentNFCKey,
+                    timestamp: Date.now()
+                });
+                
+                // Clear input
+                messageInput.value = '';
+                
+                // Refresh messages
+                const threadId = this.state.currentThreadId;
+                this.openThread(threadId);
+            } catch (error) {
+                console.error('Error sending message:', error);
+                this.showToast('Error sending message');
+            } finally {
+                this.state.isProcessing = false;
+            }
+        },
+        
+        /**
+         * Start NFC scanning
+         */
+        startNFCScan() {
+            // Prevent multiple scan attempts
+            if (this.state.isNFCScanning) return;
+            
+            // Show NFC sheet
+            this.elements.nfcSheet.classList.add('active');
+            this.elements.overlay.classList.add('active');
+            
+            // Start scanning
+            this.scanNFCToken();
+        },
+        
+        /**
+         * Close NFC sheet
+         */
+        closeNFCSheet() {
+            this.elements.nfcSheet.classList.remove('active');
+            this.elements.overlay.classList.remove('active');
+            this.state.isNFCScanning = false;
+        },
+        
+        /**
+         * Scan for NFC token
+         */
+        async scanNFCToken() {
+            this.state.isNFCScanning = true;
+            
+            if ('NDEFReader' in window) {
+                try {
+                    this.showToast('Scanning for NFC token...');
+                    const ndef = new NDEFReader();
+                    await ndef.scan();
+                    
+                    ndef.addEventListener("reading", ({ message }) => {
+                        this.handleNFCReading(message);
+                    });
+                    
+                } catch (error) {
+                    console.error('NFC scan error:', error);
+                    this.showToast(`NFC Error: ${error.message || 'Failed to scan'}`);
+                    this.closeNFCSheet();
+                    this.state.isNFCScanning = false;
+                }
+            } else {
+                this.showToast('NFC not supported on this device');
+                
+                // For development/testing on non-NFC devices
+                if (confirm("NFC not supported. Simulate successful scan for testing?")) {
+                    this.simulateNFCScan();
+                } else {
+                    this.closeNFCSheet();
+                    this.state.isNFCScanning = false;
+                }
+            }
+        },
+        
+        /**
+         * Handle NFC reading
+         * @param {NDEFMessage} message - The NDEF message
+         */
+        handleNFCReading(message) {
+            try {
+                const decoder = new TextDecoder();
+                const nfcData = JSON.parse(decoder.decode(message.records[0].data));
+                
+                // Validate required structure
+                if (!nfcData.owner || !nfcData.owner.token) {
+                    throw new Error('Invalid NFC data format');
+                }
+                
+                // Set NFC state
+                this.state.currentNFCKey = nfcData.owner.token;
+                this.state.currentNFCData = nfcData;
+                
+                // Update UI
+                this.updateNFCStatus();
+                
+                // Handle view update based on current state
+                if (this.state.currentView === 'threads') {
+                    this.loadThreads();
+                } else if (this.state.currentView === 'thread' && this.state.currentThreadId) {
+                    // Re-open current thread with new credentials
+                    const threadId = this.state.currentThreadId;
+                    this.navigateToThreads();
+                    setTimeout(() => this.openThread(threadId), 100);
+                }
+                
+                // Close NFC sheet
+                this.closeNFCSheet();
+                
+                // Check for pending actions
+                if (this.state.pendingAction === 'create_thread') {
+                    this.state.pendingAction = null;
+                    this.openCreateThreadSheet();
+                }
+                
+                this.showToast('NFC Token Scanned Successfully');
+            } catch (error) {
+                console.error('NFC data parsing error:', error);
+                this.showToast('Invalid NFC token format');
+                this.closeNFCSheet();
+            } finally {
+                this.state.isNFCScanning = false;
+            }
+        },
+        
+        /**
+         * Simulate NFC scan for testing on devices without NFC
+         */
+        simulateNFCScan() {
+            // Mock NFC data
+            const mockNFCData = {
+                owner: {
+                    id: "owner",
+                    token: "TEST-ABCD-1234"
+                },
+                readers: [
+                    { id: "Team Member", token: "TEST-WXYZ-5678" },
+                    { id: "Project Manager", token: "TEST-MNOP-9012" },
+                    { id: "Client", token: "TEST-QRST-3456" }
+                ]
+            };
+            
+            // Set NFC state
+            this.state.currentNFCKey = mockNFCData.owner.token;
+            this.state.currentNFCData = mockNFCData;
+            
+            // Update UI
+            this.updateNFCStatus();
+            
+            // Handle view update
+            if (this.state.currentView === 'threads') {
+                this.loadThreads();
+            } else if (this.state.currentView === 'thread' && this.state.currentThreadId) {
+                const threadId = this.state.currentThreadId;
+                this.navigateToThreads();
+                setTimeout(() => this.openThread(threadId), 100);
+            }
+            
+            // Close NFC sheet
+            this.closeNFCSheet();
+            
+            // Check for pending actions
+            if (this.state.pendingAction === 'create_thread') {
+                this.state.pendingAction = null;
+                this.openCreateThreadSheet();
+            }
+            
+            this.showToast('Simulated NFC Token Scan Successful');
+        },
+        
+        /**
+         * Generate participant badge HTML
+         * @param {Array} readers - Array of reader tokens
+         * @returns {string} - HTML for participant badges
+         */
+        generateParticipantBadges(readers) {
+            if (!readers || readers.length === 0) return '';
+            
+            let badges = '';
+            const readerIds = readers.map((reader, index) => `R${index + 1}`);
+            
+            // Show up to 3 badges
+            for (let i = 0; i < Math.min(readerIds.length, 3); i++) {
+                badges += `<div class="participant-badge">${readerIds[i]}</div>`;
+            }
+            
+            // If there are more readers, add a +X badge
+            if (readerIds.length > 3) {
+                badges += `<div class="participant-badge">+${readerIds.length - 3}</div>`;
+            }
+            
+            return badges;
+        },
+        
+        /**
+         * Escape HTML to prevent XSS
+         * @param {string} text - Text to escape
+         * @returns {string} - Escaped HTML
+         */
+        escapeHTML(text) {
+            if (!text) return '';
+            
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        },
+        
+        /**
+         * Truncate token for display
+         * @param {string} token - Token to truncate
+         * @returns {string} - Truncated token
+         */
+        truncateToken(token) {
+            if (!token) return '';
+            if (token.length <= 16) return token;
+            return token.substring(0, 8) + '...' + token.substring(token.length - 4);
+        }
+    };
+    
+    // Initialize the application when DOM is ready
+    document.addEventListener('DOMContentLoaded', () => {
+        SecureThreads.init();
+    });
+    </script>
+</body>
+</html>

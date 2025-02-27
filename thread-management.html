@@ -1,6 +1,4 @@
-            // Get thread data
-            const threadData = await localforage.getItem(threadId);
-            let decryptedData;<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -11,8 +9,8 @@
     <style>
         :root {
             --primary: #333;
-            --primary-dark: #63ec13;
-            --primary-light: #c5c5c5;
+            --primary-dark: #000000;
+            --primary-light: #a5a5a5;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
@@ -621,9 +619,8 @@
         let currentView = 'threads'; // 'threads' or 'messages'
         let currentThreadId = null;
         
-        // Initialize threads
+        // Function to initialize threads
         async function initializeThreads() {
-            // Clear existing threads first
             threadList.innerHTML = '';
             
             // Get all stored thread keys
@@ -710,8 +707,13 @@
                 
                 // Add click event to open thread
                 threadCard.addEventListener('click', () => {
-                    handleThreadClick(threadCard, key);
-                }, { once: true }); // Use once:true to prevent multiple listeners
+                    if (threadCard.classList.contains('locked')) {
+                        showToast('Scan your NFC token to unlock this thread');
+                        showNfcSheet();
+                    } else {
+                        openThread(key);
+                    }
+                });
                 
                 threadList.appendChild(threadCard);
             }
@@ -745,11 +747,6 @@
         
         // Open a specific thread and show its messages
         async function openThread(threadId) {
-            // Prevent duplicate loading if already processing this thread
-            if (currentThreadId === threadId && currentView === 'messages') {
-                return;
-            }
-            
             // Save thread ID to state
             currentThreadId = threadId;
             currentView = 'messages';
@@ -760,9 +757,9 @@
             createButton.style.display = 'none';
             composeArea.style.display = 'flex';
             
-            // Clear content area and prepare for messages
-            mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
-            const messageContainer = document.getElementById('messageContainer');
+            // Get thread data
+            const threadData = await localforage.getItem(threadId);
+            let decryptedData;
             
             try {
                 // First, we need to decrypt the thread key using the reader's token
@@ -796,7 +793,7 @@
             mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
             const messageContainer = document.getElementById('messageContainer');
             
-            // Load and process the message thread
+            // Load thread messages
             const messages = await loadThreadMessages(threadId);
             
             if (messages.length === 0) {
@@ -806,9 +803,6 @@
                     </div>
                 `;
             } else {
-                // Clear any existing messages to prevent duplicates
-                messageContainer.innerHTML = '';
-                
                 // Display messages
                 for (const message of messages) {
                     const messageCard = document.createElement('div');
@@ -882,21 +876,8 @@
             return messages.sort((a, b) => a.timestamp - b.timestamp);
         }
         
-        // Handle thread item clicks
-        function handleThreadClick(threadCard, threadId) {
-            if (threadCard.classList.contains('locked')) {
-                showToast('Scan your NFC token to unlock this thread');
-                showNfcSheet();
-            } else {
-                openThread(threadId);
-            }
-        }
-        
-        // Back to thread list view
+        // Go back to thread list view
         function backToThreads() {
-            // Only proceed if we're actually in message view
-            if (currentView !== 'messages') return;
-            
             currentView = 'threads';
             currentThreadId = null;
             
@@ -1238,11 +1219,7 @@
             if (currentView === 'threads') {
                 initializeThreads();
             } else if (currentView === 'messages' && currentThreadId) {
-                // For messages view, we need to reset and reopen the thread
-                // to prevent duplication
-                const threadIdToReopen = currentThreadId;
-                backToThreads();
-                setTimeout(() => openThread(threadIdToReopen), 100);
+                openThread(currentThreadId);
             }
             
             // Close NFC sheet
