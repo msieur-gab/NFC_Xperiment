@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper Matrix Typing Effect</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap");
+  
+        body {
+            background-color: #111;
+            color: #ebebeb;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            font-family: "Roboto Mono", monospace;
+        }
+        
+        .container {
+            text-align: center;
+            position: relative;
+        }
+        
+        #typing-text {
+            font-family: "Roboto Mono", monospace;
+            font-size: 24px;
+            font-weight: bold;
+            min-height: 30px;
+            display: block;
+            white-space: pre;
+            margin: 0;
+            padding: 0;
+            position: relative;
+        }
+        
+        .matrix-char {
+            position: absolute;
+            font-size: 24px;
+            opacity: 0;
+            animation: fall 1.5s linear forwards;
+        }
+        
+        @keyframes fall {
+            0% {
+                transform: translateY(-20px);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(20px);
+                opacity: 0;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <p id="typing-text"></p>
+    </div>
+  
+    <script>
+        // Define the messages to cycle through
+        const messages = [
+            'welcome to whisper',
+            'gD4r%gsj&js*352g^hdTg^',
+            'this content is encrypted',
+            '}ds5%4fd*jd&{ds2G@3x#',
+            'use your physical token to unlock',
+            'gd8j&g^sd[yw4$fd%j93jsu{',
+            'tap a capsule and swipe you card',
+            'd<u86&yeh%ge#lt04^hd&kc@3sj',
+            'memories in safe place',
+            'G,>h7JS54g@kd0e{kd>/3r4es?sd@4s'
+        ];
+        
+        // Character set for matrix effect
+        const matrixCharSet = '@#$%&<>?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        
+        // Get a random character from the character set
+        const getRandomChar = () => matrixCharSet.charAt(Math.floor(Math.random() * matrixCharSet.length));
+        
+        // Get a random number between min and max
+        const getRandomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+        
+        // Typing effect parameters
+        const typingSpeed = 80;      // Milliseconds between typing steps
+        const deleteSpeed = 50;      // Milliseconds between deleting steps
+        const delayBetweenMessages = 2000; // Milliseconds to pause between messages
+        
+        // Matrix effect parameters
+        const matrixDensity = 0.3;   // Probability of creating a matrix effect for each character
+        const matrixDuration = 1500; // Duration of matrix animation in milliseconds
+        
+        // Get the typing text element
+        const typingTextElement = document.getElementById('typing-text');
+        
+        // State variables
+        let currentMessageIndex = 0;
+        let currentText = '';
+        let isDeleting = false;
+        let timeout = null;
+        
+        // Create a matrix effect for a character at a specific position
+        function createMatrixEffect(char, x, y) {
+            // Create 3-5 falling characters
+            const numChars = getRandomBetween(3, 5);
+            
+            for (let i = 0; i < numChars; i++) {
+                setTimeout(() => {
+                    const matrixChar = document.createElement('span');
+                    matrixChar.className = 'matrix-char';
+                    matrixChar.textContent = getRandomChar();
+                    matrixChar.style.left = `${x}px`;
+                    matrixChar.style.top = `${y}px`;
+                    matrixChar.style.color = '#ffffff';
+                    
+                    document.querySelector('.container').appendChild(matrixChar);
+                    
+                    // Change characters a few times
+                    let changes = 0;
+                    const maxChanges = getRandomBetween(3, 6);
+                    const changeInterval = setInterval(() => {
+                        matrixChar.textContent = getRandomChar();
+                        changes++;
+                        
+                        if (changes >= maxChanges) {
+                            clearInterval(changeInterval);
+                            
+                            // Set the final character
+                            if (i === numChars - 1) {
+                                matrixChar.textContent = char;
+                            }
+                        }
+                    }, getRandomBetween(100, 200));
+                    
+                    // Remove the element after animation completes
+                    setTimeout(() => {
+                        matrixChar.remove();
+                    }, matrixDuration);
+                }, i * getRandomBetween(100, 300));
+            }
+        }
+        
+        // Type the current message
+        function typeMessage() {
+            const currentMessage = messages[currentMessageIndex];
+            const shouldComplete = isDeleting ? currentText.length === 0 : currentText.length === currentMessage.length;
+            
+            // If we're done typing or deleting the current message
+            if (shouldComplete) {
+                // If we just finished deleting, move to next message and start typing
+                if (isDeleting) {
+                    currentMessageIndex = (currentMessageIndex + 1) % messages.length;
+                    isDeleting = false;
+                    timeout = setTimeout(typeMessage, delayBetweenMessages);
+                    return;
+                }
+                
+                // If we just finished typing, start deleting after a delay
+                isDeleting = true;
+                timeout = setTimeout(typeMessage, delayBetweenMessages);
+                return;
+            }
+            
+            // Update the current text
+            if (isDeleting) {
+                // Get the position of the character we're about to delete
+                const charToDelete = currentText[currentText.length - 1];
+                const charRect = getCharPosition(currentText.length - 1);
+                
+                // Create matrix effect for the deleted character
+                if (Math.random() < matrixDensity) {
+                    createMatrixEffect(charToDelete, charRect.x, charRect.y);
+                }
+                
+                // Delete the last character
+                currentText = currentText.slice(0, -1);
+                timeout = setTimeout(typeMessage, deleteSpeed);
+            } else {
+                // Add the next character
+                const nextChar = currentMessage[currentText.length];
+                currentText += nextChar;
+                
+                // Get the position of the character we just added
+                const charRect = getCharPosition(currentText.length - 1);
+                
+                // Create matrix effect for the new character
+                if (Math.random() < matrixDensity) {
+                    createMatrixEffect(nextChar, charRect.x, charRect.y);
+                }
+                
+                timeout = setTimeout(typeMessage, typingSpeed);
+            }
+            
+            // Update the displayed text
+            typingTextElement.textContent = currentText;
+        }
+        
+        // Helper function to get the position of a character in the text
+        function getCharPosition(index) {
+            // Create a temporary span to measure the position
+            const tempSpan = document.createElement('span');
+            tempSpan.style.visibility = 'hidden';
+            tempSpan.style.position = 'absolute';
+            tempSpan.style.whiteSpace = 'pre';
+            tempSpan.style.font = window.getComputedStyle(typingTextElement).font;
+            
+            // Add the text up to the character we want to measure
+            tempSpan.textContent = currentText.substring(0, index + 1);
+            document.body.appendChild(tempSpan);
+            
+            // Get the position
+            const rect = tempSpan.getBoundingClientRect();
+            const containerRect = typingTextElement.getBoundingClientRect();
+            
+            // Clean up
+            document.body.removeChild(tempSpan);
+            
+            // Return the position relative to the container
+            return {
+                x: rect.right - containerRect.left - 12, // Adjust for character width
+                y: rect.top - containerRect.top
+            };
+        }
+        
+        // Start the typing effect
+        setTimeout(() => {
+            typeMessage();
+        }, 1000);
+    </script>
+</body>
+</html> 

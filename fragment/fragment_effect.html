@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Matrix Code Effect</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap");
+  
+        body {
+            background-color: #111;
+            color: #ebebeb;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            font-family: "Roboto Mono", monospace;
+        }
+        
+        .container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .cypher {
+            font-size: 12px;
+            opacity: 0.7;
+            max-width: 256px;
+            min-height: 512px;
+            overflow: hidden;
+            text-align: justify;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            line-height: 1.4;
+            display: block;
+            width: 256px;
+            position: relative;
+        }
+        
+        #cypher-text {
+            font-family: "Roboto Mono", monospace;
+            white-space: pre;
+            letter-spacing: 2px;
+            word-spacing: 0;
+            font-size: 12px;
+            line-height: 1.2;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            inline-size: 256px;
+            overflow-wrap: break-word;
+            position: relative;
+        }
+        
+        #cypher-text div {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- <p id="text-output"></p> -->
+    </div>
+
+    <div class="cypher"> 
+        <p id="cypher-text"></p>
+    </div>
+  
+    <script>
+        // Matrix Code Effect class
+        class MatrixCodeEffect {
+            static generateRandomText(length, charSet) {
+                let result = '';
+                for (let i = 0; i < length; i++) {
+                    result += charSet.charAt(Math.floor(Math.random() * charSet.length));
+                }
+                return result;
+            }
+            
+            static calculateGridDimensions(container) {
+                // Get container dimensions
+                const containerWidth = container.clientWidth;
+                const containerHeight = container.clientHeight;
+                
+                // Estimate character dimensions for Roboto Mono
+                const charWidth = 10; // Width in pixels (including letter-spacing)
+                const lineHeight = 14; // Height in pixels
+                
+                // Calculate grid dimensions
+                const columns = Math.floor(containerWidth / charWidth);
+                const rows = Math.floor(containerHeight / lineHeight);
+                
+                return { columns, rows };
+            }
+            
+            static createMatrixEffect(element, options = {}) {
+                // Character set and colors
+                const charSet = options.charSet || '@#$%&<>?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+                // const colors = options.colors || ['#666666', '#777777', '#888888', '#999999', '#aaaaaa', '#bbbbbb', '#cccccc', '#dddddd', '#ffffff'];
+                const colors = options.colors || ['#fff', '#fff', '#fff', '#fff'];
+
+                // Animation parameters
+                const minActiveDroppers = options.minActiveDroppers || 2;
+                const maxActiveDroppers = options.maxActiveDroppers || 5;
+                const updateInterval = options.updateInterval || 150;
+                
+                // Speed parameters
+                const minSpeed = options.minSpeed || 0.3;
+                const maxSpeed = options.maxSpeed || 1.2;
+                
+                // Tail parameters
+                const minTailLength = options.minTailLength || 5;
+                const maxTailLength = options.maxTailLength || 15;
+                
+                // Animation length parameters (in characters)
+                const minAnimLength = options.minAnimLength || 10;
+                const maxAnimLength = options.maxAnimLength || 20;
+                
+                // Restart parameters
+                const minRestartDelay = options.minRestartDelay || 2000;
+                const maxRestartDelay = options.maxRestartDelay || 8000;
+                
+                // Starting position parameters
+                const allowRandomStart = options.allowRandomStart !== undefined ? options.allowRandomStart : true;
+                const randomStartProbability = options.randomStartProbability || 0.3; // 30% chance to start at random position
+                
+                // Character change parameters
+                const minChangeProb = options.minChangeProb || 0.2;
+                const maxChangeProb = options.maxChangeProb || 0.6;
+                
+                // Calculate grid dimensions
+                const container = element.closest('.cypher');
+                const { columns, rows } = this.calculateGridDimensions(container);
+                
+                // Generate background text
+                const backgroundText = this.generateRandomText(columns * rows, charSet);
+                
+                // Create a grid to hold the characters
+                let grid = Array(rows).fill().map((_, r) => {
+                    return Array(columns).fill().map((_, c) => {
+                        return backgroundText[r * columns + c] || ' ';
+                    });
+                });
+                
+                // Create a grid to hold the colors
+                let colorGrid = Array(rows).fill().map(() => Array(columns).fill(null));
+                
+                // Create a grid to track active positions
+                let activeGrid = Array(rows).fill().map(() => Array(columns).fill(false));
+                
+                // Get a random character from the character set
+                const getRandomChar = () => charSet.charAt(Math.floor(Math.random() * charSet.length));
+                
+                // Get a random number between min and max
+                const getRandomBetween = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
+                
+                // Track active droppers
+                let droppers = [];
+                let intervalId;
+                let targetDropperCount = getRandomBetween(minActiveDroppers, maxActiveDroppers);
+                
+                // Create a new dropper at a random column
+                const createDropper = () => {
+                    if (droppers.length >= targetDropperCount) return;
+                    
+                    // Select a column that doesn't already have a dropper
+                    const availableColumns = [];
+                    for (let c = 0; c < columns; c++) {
+                        if (!droppers.some(d => d.column === c)) {
+                            availableColumns.push(c);
+                        }
+                    }
+                    
+                    if (availableColumns.length === 0) return;
+                    
+                    const column = availableColumns[Math.floor(Math.random() * availableColumns.length)];
+                    
+                    // Determine starting position
+                    let startRow = 0;
+                    if (allowRandomStart && Math.random() < randomStartProbability) {
+                        startRow = Math.floor(Math.random() * rows * 0.7); // Start in top 70% of grid
+                    }
+                    
+                    // Determine tail length for this dropper
+                    const tailLength = getRandomBetween(minTailLength, maxTailLength);
+                    
+                    // Determine animation length (how far down it goes)
+                    const animLength = getRandomBetween(minAnimLength, maxAnimLength);
+                    
+                    // Create the dropper
+                    droppers.push({
+                        column,
+                        row: startRow,
+                        speed: getRandomBetween(Math.floor(minSpeed * 10), Math.floor(maxSpeed * 10)) / 10, // More precise speed control
+                        tailLength: tailLength,
+                        animLength: animLength, // How many characters down the animation will go
+                        targetRow: startRow + animLength, // Calculate the target row where animation will stop
+                        tailPositions: [], // Track positions of the tail
+                        leadChar: getRandomChar(),
+                        changeProb: minChangeProb + Math.random() * (maxChangeProb - minChangeProb) // Individual change probability
+                    });
+                    
+                    // Schedule creating another dropper if needed
+                    if (droppers.length < targetDropperCount) {
+                        setTimeout(createDropper, getRandomBetween(minRestartDelay, maxRestartDelay));
+                    }
+                };
+                
+                // Update the display
+                const updateDisplay = () => {
+                    // Reset color grid and active grid (but keep the background characters)
+                    for (let r = 0; r < rows; r++) {
+                        for (let c = 0; c < columns; c++) {
+                            colorGrid[r][c] = null;
+                            activeGrid[r][c] = false;
+                        }
+                    }
+                    
+                    // Update each dropper
+                    const completedDroppers = [];
+                    
+                    droppers.forEach((dropper, index) => {
+                        // Check if the dropper has reached its target row
+                        if (dropper.row >= dropper.targetRow) {
+                            // If we've reached the target and the tail is gone, mark for removal
+                            if (dropper.tailPositions.length === 0) {
+                                completedDroppers.push(index);
+                                return;
+                            }
+                            
+                            // Otherwise, just remove the tail gradually
+                            if (dropper.tailPositions.length > 0) {
+                                dropper.tailPositions.pop();
+                            }
+                        } else {
+                            // Move the dropper down
+                            dropper.row += dropper.speed;
+                            
+                            // Change the lead character
+                            dropper.leadChar = getRandomChar();
+                            
+                            // Add the current position to the tail
+                            dropper.tailPositions.unshift({ 
+                                row: dropper.row, 
+                                char: dropper.leadChar 
+                            });
+                            
+                            // Limit the tail length
+                            if (dropper.tailPositions.length > dropper.tailLength) {
+                                dropper.tailPositions.pop();
+                            }
+                        }
+                        
+                        // Draw the dropper and its tail
+                        dropper.tailPositions.forEach((pos, tailIndex) => {
+                            const r = Math.floor(pos.row);
+                            const c = dropper.column;
+                            
+                            if (r >= 0 && r < rows) {
+                                // Mark this position as active
+                                activeGrid[r][c] = true;
+                                
+                                // Always change the character at each position
+                                // The probability decreases as we go down the tail
+                                const changeThreshold = dropper.changeProb - (tailIndex / dropper.tailLength * 0.5);
+                                if (Math.random() < changeThreshold) {
+                                    pos.char = getRandomChar();
+                                }
+                                
+                                // Update the character
+                                grid[r][c] = pos.char;
+                                
+                                // Calculate color based on position in tail
+                                const colorIndex = Math.floor((tailIndex / dropper.tailLength) * (colors.length - 1));
+                                colorGrid[r][c] = colors[colorIndex];
+                            }
+                        });
+                    });
+                    
+                    // Shuffle characters at all active positions
+                    for (let r = 0; r < rows; r++) {
+                        for (let c = 0; c < columns; c++) {
+                            if (activeGrid[r][c]) {
+                                // This is an active position, shuffle its character
+                                if (Math.random() < 0.5) { // 50% chance to change
+                                    grid[r][c] = getRandomChar();
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Remove completed droppers
+                    for (let i = completedDroppers.length - 1; i >= 0; i--) {
+                        droppers.splice(completedDroppers[i], 1);
+                    }
+                    
+                    // Occasionally adjust target dropper count
+                    if (Math.random() < 0.005) { // 0.5% chance each update
+                        targetDropperCount = getRandomBetween(minActiveDroppers, maxActiveDroppers);
+                    }
+                    
+                    // Add new droppers if needed
+                    if (droppers.length < targetDropperCount) {
+                        setTimeout(createDropper, getRandomBetween(minRestartDelay, maxRestartDelay));
+                    }
+                    
+                    // Render the grid
+                    renderGrid();
+                };
+                
+                // Render the grid
+                const renderGrid = () => {
+                    element.innerHTML = '';
+                    
+                    for (let r = 0; r < rows; r++) {
+                        const rowElement = document.createElement('div');
+                        rowElement.style.whiteSpace = 'pre';
+                        rowElement.style.height = '1.2em';
+                        
+                        let currentSpan = null;
+                        let currentColor = null;
+                        
+                        for (let c = 0; c < columns; c++) {
+                            const char = grid[r][c];
+                            const color = colorGrid[r][c];
+                            
+                            if (color !== null) {
+                                // This is a colored character
+                                if (color !== currentColor) {
+                                    currentSpan = document.createElement('span');
+                                    currentSpan.style.color = color;
+                                    rowElement.appendChild(currentSpan);
+                                    currentColor = color;
+                                }
+                                currentSpan.textContent += char;
+                            } else {
+                                // This is a background character
+                                if (currentColor !== null) {
+                                    currentSpan = document.createElement('span');
+                                    rowElement.appendChild(currentSpan);
+                                    currentColor = null;
+                                }
+                                
+                                if (!currentSpan) {
+                                    currentSpan = document.createElement('span');
+                                    rowElement.appendChild(currentSpan);
+                                }
+                                
+                                currentSpan.textContent += char;
+                            }
+                        }
+                        
+                        element.appendChild(rowElement);
+                    }
+                };
+                
+                // Start creating droppers with a staggered start
+                setTimeout(() => {
+                    createDropper();
+                }, getRandomBetween(500, 2000));
+                
+                // Initial render
+                renderGrid();
+                
+                // Start the animation
+                intervalId = setInterval(updateDisplay, updateInterval);
+                
+                // Return control object
+                return {
+                    stop: () => {
+                        clearInterval(intervalId);
+                        element.innerHTML = '';
+                    },
+                    resize: (newContainer) => {
+                        const newDimensions = MatrixCodeEffect.calculateGridDimensions(newContainer);
+                        if (newDimensions.columns !== columns || newDimensions.rows !== rows) {
+                            // Resize the grid
+                            const newBackgroundText = MatrixCodeEffect.generateRandomText(
+                                newDimensions.columns * newDimensions.rows, 
+                                charSet
+                            );
+                            
+                            grid = Array(newDimensions.rows).fill().map((_, r) => {
+                                return Array(newDimensions.columns).fill().map((_, c) => {
+                                    return newBackgroundText[r * newDimensions.columns + c] || ' ';
+                                });
+                            });
+                            
+                            colorGrid = Array(newDimensions.rows).fill().map(() => 
+                                Array(newDimensions.columns).fill(null)
+                            );
+                            
+                            activeGrid = Array(newDimensions.rows).fill().map(() => 
+                                Array(newDimensions.columns).fill(false)
+                            );
+                            
+                            // Update dimensions
+                            columns = newDimensions.columns;
+                            rows = newDimensions.rows;
+                            
+                            // Reset droppers
+                            droppers = [];
+                            targetDropperCount = getRandomBetween(minActiveDroppers, maxActiveDroppers);
+                            setTimeout(() => {
+                                createDropper();
+                            }, getRandomBetween(500, 2000));
+                        }
+                    }
+                };
+            }
+        }
+        
+        // Get the cypher text element and container
+        const cypherText = document.getElementById('cypher-text');
+        const cypherContainer = document.querySelector('.cypher');
+        
+        // Define the character set for Matrix-like symbols
+        const matrixCharSet = '@#$%^&<>?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        
+        // Create a grayscale color gradient
+        // const grayscaleColors = [
+        //     '#666666', '#777777', '#888888', '#999999', 
+        //     '#aaaaaa', '#bbbbbb', '#cccccc', '#dddddd', '#ffffff'
+        // ];
+        
+        const grayscaleColors = [
+            '#ffffff', '#ffffff', '#ffffff', '#ffffff', 
+            '#ffffff', '#ffffff', '#ffffff', '#ffffff', '#ffffff'
+        ];
+        // Function to ensure text element fills the container
+        const fillContainer = () => {
+            const container = document.querySelector('.cypher');
+            const textElement = document.getElementById('cypher-text');
+            
+            // Get container dimensions
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            
+            // Adjust text element size
+            textElement.style.width = (containerWidth - 2) + 'px';
+            textElement.style.height = (containerHeight - 2) + 'px';
+            textElement.style.inlineSize = (containerWidth - 10) + 'px';
+        };
+        
+        // Call once on load
+        fillContainer();
+        
+        // Also call on window resize
+        window.addEventListener('resize', () => {
+            fillContainer();
+            
+            // Restart the effect
+            if (matrixEffect && matrixEffect.stop) {
+                matrixEffect.stop();
+            }
+            
+            matrixEffect = MatrixCodeEffect.createMatrixEffect(cypherText, {
+                // Character set and colors
+                charSet: matrixCharSet,
+                colors: grayscaleColors,
+                
+                // Animation parameters
+                minActiveDroppers: 2,
+                maxActiveDroppers: 5,
+                updateInterval: 150,
+                
+                // Speed parameters
+                minSpeed: 0.3,
+                maxSpeed: 1.2,
+                
+                // Tail parameters
+                minTailLength: 5,
+                maxTailLength: 15,
+                
+                // Animation length parameters
+                minAnimLength: 10,
+                maxAnimLength: 20,
+                
+                // Restart parameters
+                minRestartDelay: 2000,
+                maxRestartDelay: 8000,
+                
+                // Starting position parameters
+                allowRandomStart: true,
+                randomStartProbability: 0.3,
+                
+                // Character change parameters
+                minChangeProb: 0.2,
+                maxChangeProb: 0.6
+            });
+        });
+        
+        // Apply the Matrix effect
+        let matrixEffect = MatrixCodeEffect.createMatrixEffect(cypherText, {
+            // Character set and colors
+            charSet: matrixCharSet,
+            colors: grayscaleColors,
+            
+            // Animation parameters
+            minActiveDroppers: 2,
+            maxActiveDroppers: 5,
+            updateInterval: 150,
+            
+            // Speed parameters
+            minSpeed: 0.3,
+            maxSpeed: 1.2,
+            
+            // Tail parameters
+            minTailLength: 5,
+            maxTailLength: 15,
+            
+            // Animation length parameters
+            minAnimLength: 10,
+            maxAnimLength: 20,
+            
+            // Restart parameters
+            minRestartDelay: 2000,
+            maxRestartDelay: 8000,
+            
+            // Starting position parameters
+            allowRandomStart: true,
+            randomStartProbability: 0.3,
+            
+            // Character change parameters
+            minChangeProb: 0.2,
+            maxChangeProb: 0.6
+        });
+    </script>
+</body>
+</html>

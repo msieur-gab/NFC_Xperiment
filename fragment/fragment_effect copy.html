@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Whisper Fragment Effect</title>
+    <style>
+        @import url("https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@400;500&display=swap");
+  
+        body {
+            background-color: #111;
+            color: #bbbbbb;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+            font-family: "Roboto Mono", monospace;
+        }
+        
+        p {
+            font-size: 24px;
+            font-weight: bold;
+            min-height: 30px;
+            display: block;
+        }
+        
+        .container {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .cypher {
+            font-size: 12px;
+            opacity: 0.7;
+            max-width: 128px;
+            min-height: 258px;
+            overflow: hidden;
+            text-align: justify;
+            /* margin-top: 20px; */
+            /* padding: 10px; */
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 4px;
+            line-height: 1.4;
+            display: block;
+            width: 256px;
+        }
+        
+        #cypher-text {
+            font-family: "Roboto Mono", monospace;
+            white-space: pre;
+            letter-spacing: 2px;
+            word-spacing: 0;
+            font-size: 12px;
+            line-height: 2px;
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            inline-size: 110px;
+            /* overflow: hidden; */
+            overflow-wrap: break-word;
+        }
+        
+        #cypher-text div {
+            margin: 0;
+            padding: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- <p id="text-output"></p> -->
+    </div>
+
+    <div class="cypher"> 
+        <p id="cypher-text"></p>
+    </div>
+
+    <script src="fragment-effect.js"></script>
+    <script>
+        // Get the cypher text element
+        const cypherText = document.getElementById('cypher-text');
+        
+        // Define the character set for encryption-like symbols
+        const encryptionCharSet = '@#$%^&<>?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+        
+        // Initialize with random text
+        FragmentEffect.initializeWithRandomText(cypherText, {
+            textLength: 250,
+            charSet: encryptionCharSet
+        });
+        
+        // Create a color gradient from dark gray to white
+        const colors = [
+            '#666666', '#777777', '#888888', '#999999', 
+            '#aaaaaa', '#bbbbbb', '#cccccc', '#dddddd', '#ffffff'
+        ];
+        
+        // Function to ensure text fills the container
+        const fillContainer = () => {
+            const container = document.querySelector('.cypher');
+            const textElement = document.getElementById('cypher-text');
+            
+            // Get container dimensions
+            const containerWidth = container.clientWidth;
+            const containerHeight = container.clientHeight;
+            
+            // Adjust text element size
+            textElement.style.width = (containerWidth - 2) + 'px';
+            textElement.style.height = (containerHeight - 2) + 'px';
+            textElement.style.inlineSize = (containerWidth - 10) + 'px';
+        };
+        
+        // Call once on load
+        fillContainer();
+        
+        // Also call on window resize
+        window.addEventListener('resize', fillContainer);
+        
+        const cypherEffect = FragmentEffect.createSimpleEncryptionEffect(cypherText, {
+            minActiveChars: 2,        // Minimum number of characters to animate at once
+            maxActiveChars: 5,        // Maximum number of characters to animate at once
+            updateInterval: 80,       // Update every 80ms for a fluid animation
+            minPauseDuration: 1000,   // Minimum pause of 1000ms between adding characters
+            maxPauseDuration: 3000,   // Maximum pause of 3000ms between adding characters
+            minChangeCount: 15,       // Minimum times each character changes before fading
+            maxChangeCount: 20,       // Maximum times each character changes before fading
+            fadeSteps: 0,             // Number of steps to fade out the effect
+            colors: colors,           // Use our gradient colors
+            charSet: encryptionCharSet // Use the same character set for animations
+        });
+    </script>
+</body>
+</html>

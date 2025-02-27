@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Time Vault</title>
+    <style>
+        *, body, html{
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            /* padding: 0px; */
+            overflow: hidden;
+        }
+
+        .vault-container {
+            width: 100%;
+            max-width: 800px;
+            position: relative;
+            overflow: visible;
+            transition: all 0.3s ease;
+        }
+
+        .vault {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            padding-left: calc(50% - 125px);
+            padding-right: calc(50% - 125px);
+            overflow-x: scroll;
+            scroll-snap-type: x mandatory;
+            scroll-behavior: smooth;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            position: relative;
+        }
+
+        .vault::-webkit-scrollbar {
+            display: none;
+        }
+
+        .capsule {
+            flex: 0 0 250px;
+            height: 350px;
+            background-color: white;
+            border-radius: 12px;
+            scroll-snap-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            position: relative;
+            z-index: 1;
+            transform-origin: center;
+            transition: 
+                flex-basis 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                height 0.4s cubic-bezier(0.4, 0, 0.2, 1) 0.2s,
+                opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+                transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .capsule.expanded {
+            flex: 0 0 90vw;
+            height: 90vh;
+            z-index: 10;
+            cursor: default;
+        }
+
+        .vault.has-expanded-capsule {
+            padding-left: calc(50% - 45vw);
+            padding-right: calc(50% - 45vw);
+            gap: 0;
+            overflow: hidden;
+        }
+
+        .vault.has-expanded-capsule .capsule:not(.expanded) {
+            flex: 0 0 0;
+            opacity: 0;
+            transform: translateX(-20px);
+            transition-delay: 0s;
+        }
+
+        .indicators {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+            position: relative;
+            padding: 4px 0;
+            transition: all 0.3s ease;
+        }
+
+        .indicators.hidden {
+            transform: translateY(20px);
+            opacity: 0;
+            pointer-events: none;
+        }
+
+        body.has-expanded-capsule {
+            overflow: hidden;
+        }
+
+        .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #ccc;
+            cursor: pointer;
+            transition: 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .moving-indicator {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #333;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            z-index: 2;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .indicator.active {
+            background-color: transparent;
+        }
+
+        /* Add back arrow styles */
+        .back-arrow {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background-color: #f4f4f4;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            opacity: 0;
+            transform: translateX(-60px);
+            transition: all 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 11;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .back-arrow::before {
+            content: '';
+            width: 12px;
+            height: 12px;
+            border-left: 2px solid #333;
+            border-bottom: 2px solid #333;
+            transform: rotate(45deg);
+            margin-left: 4px;
+        }
+
+        .back-arrow.visible {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        /* Add hover effect */
+        .back-arrow:hover {
+            background-color: #e4e4e4;
+        }
+    </style>
+</head>
+<body>
+    <div class="vault-container">
+        <div id="vault" class="vault">
+            <!-- Capsules will be added here -->
+        </div>
+        <div id="indicators" class="indicators">
+            <!-- Indicators will be added here -->
+        </div>
+    </div>
+
+    <script>
+        const totalCapsules = 5;
+
+        function renderVault() {
+            const vault = document.getElementById('vault');
+            const indicators = document.getElementById('indicators');
+
+            // Create capsules
+            for (let i = 0; i < totalCapsules; i++) {
+                const capsule = document.createElement('div');
+                capsule.className = 'capsule';
+                capsule.textContent = `Capsule ${i + 1}`;
+                vault.appendChild(capsule);
+
+                const indicator = document.createElement('div');
+                indicator.className = 'indicator';
+                indicator.dataset.index = i;
+                indicators.appendChild(indicator);
+            }
+
+            setupScrollListener();
+        }
+
+        function setupScrollListener() {
+            const vault = document.getElementById('vault');
+            const indicators = document.getElementById('indicators');
+
+            // Create back arrow
+            const backArrow = document.createElement('div');
+            backArrow.className = 'back-arrow';
+            document.body.appendChild(backArrow);
+
+            // Create moving indicator
+            const movingIndicator = document.createElement('div');
+            movingIndicator.className = 'moving-indicator';
+            indicators.appendChild(movingIndicator);
+
+            // Initial active state
+            updateActiveIndicator(0);
+
+            // Setup capsule click handlers
+            vault.querySelectorAll('.capsule').forEach((capsule) => {
+                capsule.addEventListener('click', (e) => {
+                    const rect = capsule.getBoundingClientRect();
+                    
+                    if (!capsule.classList.contains('expanded')) {
+                        expandCapsule(capsule, vault, indicators, backArrow, rect);
+                    }
+                });
+            });
+
+            // Setup back arrow click handler
+            backArrow.addEventListener('click', () => {
+                const expandedCapsule = document.querySelector('.capsule.expanded');
+                if (expandedCapsule) {
+                    collapseCapsule(expandedCapsule, vault, indicators, backArrow);
+                }
+            });
+
+            vault.addEventListener('scroll', () => {
+                const capsuleWidth = vault.children[0].offsetWidth + 16;
+                const scrollPosition = vault.scrollLeft;
+                const exactIndex = scrollPosition / capsuleWidth;
+                const currentIndex = Math.round(exactIndex);
+                
+                updateActiveIndicator(currentIndex, exactIndex);
+            });
+
+            // Add click listeners to indicators
+            indicators.querySelectorAll('.indicator').forEach((indicator, index) => {
+                indicator.addEventListener('click', () => {
+                    const capsuleWidth = vault.children[0].offsetWidth + 16;
+                    vault.scrollTo({
+                        left: index * capsuleWidth,
+                        behavior: 'smooth'
+                    });
+                });
+            });
+        }
+
+        function updateActiveIndicator(activeIndex, exactIndex = activeIndex) {
+            const indicators = document.querySelectorAll('.indicator');
+            const movingIndicator = document.querySelector('.moving-indicator');
+            const indicatorContainer = document.querySelector('.indicators');
+            
+            // Update active state
+            indicators.forEach((indicator, index) => {
+                indicator.classList.toggle('active', index === activeIndex);
+            });
+
+            // Calculate position and width for moving indicator
+            const firstIndicator = indicators[0];
+            const containerRect = indicatorContainer.getBoundingClientRect();
+            const firstIndicatorRect = firstIndicator.getBoundingClientRect();
+            
+            // Calculate the offset from the container's left edge to the first indicator
+            const initialOffset = firstIndicatorRect.left - containerRect.left;
+            const gap = 8; // Same as gap in CSS
+            const indicatorWidth = firstIndicatorRect.width;
+            
+            if (exactIndex === activeIndex) {
+                // When settled on a position
+                movingIndicator.style.width = `${indicatorWidth}px`;
+                const position = initialOffset + (activeIndex * (indicatorWidth + gap));
+                movingIndicator.style.left = `${position}px`;
+            } else {
+                // During transition
+                const startIndex = Math.floor(exactIndex);
+                const endIndex = Math.ceil(exactIndex);
+                
+                const startPos = initialOffset + (startIndex * (indicatorWidth + gap));
+                const endPos = initialOffset + (endIndex * (indicatorWidth + gap));
+                const width = (endPos - startPos) + indicatorWidth;
+                
+                movingIndicator.style.left = `${startPos}px`;
+                movingIndicator.style.width = `${width}px`;
+            }
+        }
+
+        function expandCapsule(capsule, vault, indicators, backArrow, rect) {
+            const capsuleIndex = Array.from(vault.children).indexOf(capsule);
+            const capsuleWidth = rect.width + 16;
+            vault.scrollTo({
+                left: capsuleIndex * capsuleWidth,
+                behavior: 'smooth'
+            });
+
+            setTimeout(() => {
+                vault.classList.add('has-expanded-capsule');
+                capsule.classList.add('expanded');
+                indicators.classList.add('hidden');
+                backArrow.classList.add('visible');
+            }, 300);
+        }
+
+        function collapseCapsule(capsule, vault, indicators, backArrow) {
+            const capsuleIndex = Array.from(vault.children).indexOf(capsule);
+            
+            vault.classList.remove('has-expanded-capsule');
+            capsule.classList.remove('expanded');
+            indicators.classList.remove('hidden');
+            backArrow.classList.remove('visible');
+
+            setTimeout(() => {
+                const capsuleWidth = 250 + 16;
+                vault.scrollTo({
+                    left: capsuleIndex * capsuleWidth,
+                    behavior: 'smooth'
+                });
+            }, 600);
+        }
+
+        document.addEventListener('DOMContentLoaded', renderVault);
+    </script>
+</body>
+</html>

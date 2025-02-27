@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Murmur: Temporal Vault</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://unpkg.com/dexie@latest/dist/dexie.js"></script>
+    <style>
+        :root {
+            --primary: #333;
+            --primary-dark: #000;
+            --primary-light: #dbeafe;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #1f2937;
+            --light: #f9fafb;
+            --gray: #9ca3af;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f4;
+            color: var(--dark);
+            padding: 0;
+            margin: 0;
+            overflow-x: hidden;
+            min-height: 100vh;
+        }
+        
+        .timeline-container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            position: relative;
+        }
+        
+        .timeline-line {
+            position: absolute;
+            left: 30px;
+            top: 0;
+            bottom: 0;
+            width: 4px;
+            background-color: var(--gray);
+            opacity: 0.3;
+        }
+        
+        .timeline {
+            position: relative;
+            padding-left: 60px;
+        }
+        
+        .year-sticky {
+            position: sticky;
+            top: 0;
+            background-color: var(--primary);
+            color: white;
+            padding: 10px 15px;
+            z-index: 10;
+            font-weight: bold;
+            margin-bottom: 15px;
+        }
+        
+        .date-sticky {
+            position: sticky;
+            top: 50px;
+            background-color: var(--light);
+            color: var(--dark);
+            padding: 8px 15px;
+            z-index: 5;
+            font-size: 0.9rem;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .artifact-card {
+            background-color: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .artifact-marker {
+            position: absolute;
+            left: -54px;
+            top: 0;
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            border: 3px solid white;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .artifact-marker.snapshot {
+            background-color: var(--success);
+        }
+        
+        .artifact-marker.memoir {
+            background-color: var(--primary);
+        }
+        
+        .artifact-marker.echo {
+            background-color: var(--warning);
+        }
+        
+        .artifact-type {
+            font-size: 0.8rem;
+            color: var(--gray);
+            margin-bottom: 8px;
+        }
+        
+        .artifact-content {
+            margin-bottom: 8px;
+        }
+        
+        .artifact-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.75rem;
+            color: var(--gray);
+        }
+        
+        .fab {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: white;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 1.5rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            border: none;
+            cursor: pointer;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body>
+    <div class="timeline-container">
+        <div class="timeline-line"></div>
+        <div id="timeline" class="timeline">
+            <!-- Timeline content will be dynamically populated -->
+        </div>
+    </div>
+    
+    <button class="fab" id="addArtifactBtn">+</button>
+    
+    <script>
+        // Initialize Dexie Database
+        const db = new Dexie('MurmurTemporalVault');
+        db.version(1).stores({
+            artifacts: '++id, type, timestamp, author'
+        });
+
+        // Artifact data structure
+        class Artifact {
+            constructor(type, content, timestamp) {
+                this.type = type; // 'Snapshot', 'Memoir', or 'Echo'
+                this.content = content;
+                this.timestamp = timestamp || Date.now();
+                this.author = 'CurrentUser'; // Could be dynamically set
+            }
+        }
+        
+        // Render timeline with artifacts sorted by timestamp (latest first)
+        async function renderTimeline() {
+            const timeline = document.getElementById('timeline');
+            timeline.innerHTML = '';
+            
+            // Fetch and sort artifacts
+            const artifacts = await db.artifacts
+                .orderBy('timestamp')
+                .reverse()
+                .toArray();
+            
+            // Group artifacts by year
+            const artifactsByYear = {};
+            artifacts.forEach(artifact => {
+                const year = new Date(artifact.timestamp).getFullYear();
+                if (!artifactsByYear[year]) {
+                    artifactsByYear[year] = [];
+                }
+                artifactsByYear[year].push(artifact);
+            });
+            
+            // Sort years in descending order
+            const years = Object.keys(artifactsByYear).sort((a, b) => b - a);
+            
+            years.forEach(year => {
+                // Create year sticky header
+                const yearSticky = document.createElement('div');
+                yearSticky.className = 'year-sticky';
+                yearSticky.textContent = year;
+                timeline.appendChild(yearSticky);
+                
+                // Track unique dates to create sticky date headers
+                const processedDates = new Set();
+                
+                artifactsByYear[year].forEach(artifact => {
+                    const artifactDate = new Date(artifact.timestamp);
+                    const dateKey = `${artifactDate.getDate()}-${artifactDate.getMonth()}`;
+                    
+                    // Add sticky date header if not already processed
+                    if (!processedDates.has(dateKey)) {
+                        const dateSticky = document.createElement('div');
+                        dateSticky.className = 'date-sticky';
+                        dateSticky.textContent = artifactDate.toLocaleDateString('en-US', { 
+                            day: '2-digit', 
+                            month: 'short' 
+                        });
+                        timeline.appendChild(dateSticky);
+                        processedDates.add(dateKey);
+                    }
+                    
+                    // Create artifact card
+                    const artifactCard = document.createElement('div');
+                    artifactCard.className = 'artifact-card';
+                    
+                    // Create marker
+                    const marker = document.createElement('div');
+                    marker.className = `artifact-marker ${artifact.type.toLowerCase()}`;
+                    
+                    artifactCard.innerHTML = `
+                        <div class="artifact-type">${artifact.type}</div>
+                        <div class="artifact-content">${artifact.content}</div>
+                        <div class="artifact-meta">
+                            <span>${artifact.author}</span>
+                            <span>${new Date(artifact.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                    `;
+                    
+                    // Add marker to the card
+                    artifactCard.appendChild(marker);
+                    timeline.appendChild(artifactCard);
+                });
+            });
+        }
+        
+        // Add new artifact
+        async function addArtifact() {
+            const type = prompt('Artifact Type (Snapshot/Memoir/Echo):');
+            if (!type) return;
+            
+            const content = prompt('Artifact Content:');
+            if (!content) return;
+            
+            const newArtifact = new Artifact(type, content);
+            
+            // Save artifact to Dexie
+            await db.artifacts.add(newArtifact);
+            
+            // Refresh timeline
+            renderTimeline();
+        }
+        
+        // Sample memoirs for populating timeline
+        const sampleMemoirs = [
+            { year: 2022, memoirs: [
+                { type: 'Memoir', content: "First solo trip to Japan. Explored Tokyo's vibrant streets and found peace in Kyoto's temples.", date: new Date(2022, 3, 15) },
+                { type: 'Snapshot', content: "Graduation day. Finally completed my Master's degree after years of hard work.", date: new Date(2022, 5, 22) },
+                { type: 'Echo', content: "Recorded my grandmother's stories about her childhood during wartime. Her resilience is inspiring.", date: new Date(2022, 8, 3) },
+                { type: 'Memoir', content: "Started my first real job. Nervous but excited about the new chapter in my career.", date: new Date(2022, 11, 1) }
+            ]},
+            { year: 2023, memoirs: [
+                { type: 'Snapshot', content: "Adopted a rescue dog named Luna. She's changed my life completely.", date: new Date(2023, 1, 14) },
+                { type: 'Memoir', content: "Learned to play the guitar. Still terrible, but enjoying the process of learning.", date: new Date(2023, 4, 7) },
+                { type: 'Echo', content: "Recorded the sounds of a beautiful mountain hike. The silence is profound.", date: new Date(2023, 6, 20) },
+                { type: 'Snapshot', content: "Ran my first half-marathon. Months of training finally paid off.", date: new Date(2023, 9, 12) }
+            ]},
+            { year: 2024, memoirs: [
+                { type: 'Memoir', content: "Started writing a novel. It's challenging but incredibly fulfilling.", date: new Date(2024, 0, 5) },
+                { type: 'Snapshot', content: "Visited my ancestral hometown for the first time. Connected with family roots.", date: new Date(2024, 2, 18) },
+                { type: 'Echo', content: "Recorded the city soundscape during a quiet Sunday morning. Urban poetry.", date: new Date(2024, 5, 9) },
+                { type: 'Memoir', content: "Learned a new programming language. Technology continues to amaze me.", date: new Date(2024, 8, 22) }
+            ]}
+        ];
+
+        // Populate database with sample memoirs
+        async function populateTimeline() {
+            // Clear existing artifacts
+            await db.artifacts.clear();
+
+            // Add sample memoirs
+            for (const yearData of sampleMemoirs) {
+                for (const memoir of yearData.memoirs) {
+                    await db.artifacts.add({
+                        type: memoir.type,
+                        content: memoir.content,
+                        timestamp: memoir.date.getTime(),
+                        author: 'CurrentUser'
+                    });
+                }
+            }
+
+            // Render timeline
+            renderTimeline();
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            // Populate timeline with sample data
+            populateTimeline();
+            
+            // Add artifact button event
+            document.getElementById('addArtifactBtn').addEventListener('click', addArtifact);
+        });
+    </script>
+</body>
+</html>

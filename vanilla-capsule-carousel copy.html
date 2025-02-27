@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Card Carousel</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f4f4f4;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .carousel-container {
+            width: 100%;
+            max-width: 800px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .carousel {
+            display: flex;
+            gap: 16px;
+            padding: 16px;
+            padding-left: calc(50% - 125px);
+            padding-right: calc(50% - 125px);
+            overflow-x: scroll;
+            scroll-snap-type: x mandatory;
+            scroll-behavior: smooth;
+            scrollbar-width: none;
+            -ms-overflow-style: none;
+        }
+
+        .carousel::-webkit-scrollbar {
+            display: none;
+        }
+
+        .card {
+            flex: 0 0 250px;
+            height: 350px;
+            background-color: white;
+            border-radius: 12px;
+            scroll-snap-align: center;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+        }
+
+        .indicators {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 16px;
+            position: relative;
+            padding: 4px 0;
+        }
+
+        .indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: #ccc;
+            cursor: pointer;
+            transition: 0.3s;
+            position: relative;
+            z-index: 1;
+        }
+
+        .moving-indicator {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background-color: #333;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            z-index: 2;
+            top: 50%;
+            transform: translateY(-50%);
+        }
+
+        .indicator.active {
+            background-color: transparent;
+        }
+    </style>
+</head>
+<body>
+    <div class="carousel-container">
+        <div id="carousel" class="carousel">
+            <!-- Cards will be added here -->
+        </div>
+        <div id="indicators" class="indicators">
+            <!-- Indicators will be added here -->
+        </div>
+    </div>
+
+    <script>
+        const totalCards = 5;
+
+        function renderCarousel() {
+            const carousel = document.getElementById('carousel');
+            const indicators = document.getElementById('indicators');
+
+            // Create cards
+            for (let i = 0; i < totalCards; i++) {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.textContent = `Card ${i + 1}`;
+                carousel.appendChild(card);
+
+                const indicator = document.createElement('div');
+                indicator.className = 'indicator';
+                indicator.dataset.index = i;
+                indicators.appendChild(indicator);
+            }
+
+            setupScrollListener();
+        }
+
+        function setupScrollListener() {
+            const carousel = document.getElementById('carousel');
+            const indicators = document.getElementById('indicators');
+
+            // Create moving indicator
+            const movingIndicator = document.createElement('div');
+            movingIndicator.className = 'moving-indicator';
+            indicators.appendChild(movingIndicator);
+
+            // Initial active state
+            updateActiveIndicator(0);
+
+            carousel.addEventListener('scroll', () => {
+                const cardWidth = carousel.children[0].offsetWidth + 16;
+                const scrollPosition = carousel.scrollLeft;
+                const exactIndex = scrollPosition / cardWidth;
+                const currentIndex = Math.round(exactIndex);
+                
+                updateActiveIndicator(currentIndex, exactIndex);
+            });
+
+            // Add click listeners to indicators
+            indicators.querySelectorAll('.indicator').forEach((indicator, index) => {
+                indicator.addEventListener('click', () => {
+                    const cardWidth = carousel.children[0].offsetWidth + 16;
+                    carousel.scrollTo({
+                        left: index * cardWidth,
+                        behavior: 'smooth'
+                    });
+                });
+            });
+        }
+
+        function updateActiveIndicator(activeIndex, exactIndex = activeIndex) {
+            const indicators = document.querySelectorAll('.indicator');
+            const movingIndicator = document.querySelector('.moving-indicator');
+            const indicatorContainer = document.querySelector('.indicators');
+            
+            // Update active state
+            indicators.forEach((indicator, index) => {
+                indicator.classList.toggle('active', index === activeIndex);
+            });
+
+            // Calculate position and width for moving indicator
+            const firstIndicator = indicators[0];
+            const containerRect = indicatorContainer.getBoundingClientRect();
+            const firstIndicatorRect = firstIndicator.getBoundingClientRect();
+            
+            // Calculate the offset from the container's left edge to the first indicator
+            const initialOffset = firstIndicatorRect.left - containerRect.left;
+            const gap = 8; // Same as gap in CSS
+            const indicatorWidth = firstIndicatorRect.width;
+            
+            if (exactIndex === activeIndex) {
+                // When settled on a position
+                movingIndicator.style.width = `${indicatorWidth}px`;
+                const position = initialOffset + (activeIndex * (indicatorWidth + gap));
+                movingIndicator.style.left = `${position}px`;
+            } else {
+                // During transition
+                const startIndex = Math.floor(exactIndex);
+                const endIndex = Math.ceil(exactIndex);
+                
+                const startPos = initialOffset + (startIndex * (indicatorWidth + gap));
+                const endPos = initialOffset + (endIndex * (indicatorWidth + gap));
+                const width = (endPos - startPos) + indicatorWidth;
+                
+                movingIndicator.style.left = `${startPos}px`;
+                movingIndicator.style.width = `${width}px`;
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', renderCarousel);
+    </script>
+</body>
+</html>
