@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Secure Discussion Threads</title>
+    <title>Secure Thread Management</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <style>
         :root {
-            --primary: #2563eb;
-            --primary-dark: #1d4ed8;
-            --primary-light: #dbeafe;
+            --primary: #333;
+            --primary-dark: #8cf317;
+            --primary-light: #b6b6b6;
             --success: #10b981;
             --warning: #f59e0b;
             --danger: #ef4444;
@@ -77,7 +77,6 @@
             padding: 4px 8px;
             border-radius: 12px;
             background-color: rgba(255,255,255,0.2);
-            cursor: pointer;
         }
         
         .status-indicator {
@@ -114,7 +113,6 @@
             transition: transform 0.2s;
             display: flex;
             flex-direction: column;
-            cursor: pointer;
         }
         
         .thread-card:active {
@@ -199,6 +197,26 @@
             border-left: 4px solid var(--warning);
             align-self: flex-start;
             max-width: 90%;
+        }
+        
+        .message-card.encrypted {
+            background-color: #f3f4f6;
+            border-left: 4px solid var(--gray);
+            font-family: monospace;
+            font-size: 0.875rem;
+            overflow: hidden;
+            max-height: 120px;
+            position: relative;
+        }
+        
+        .message-card.encrypted::after {
+            content: "";
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 40px;
+            background: linear-gradient(transparent, #f3f4f6);
         }
         
         .message-card .lock-icon {
@@ -503,7 +521,7 @@
         <header class="header">
             <button id="backButton" class="back-button">←</button>
             <h1 id="headerTitle">Discussion Threads</h1>
-            <div class="status-badge" id="statusBadge">
+            <div class="status-badge">
                 <span class="status-indicator" id="nfcStatus"></span>
                 <span id="statusText">Tap to scan NFC</span>
             </div>
@@ -569,148 +587,595 @@
         <button id="sendButton" class="send-button">→</button>
     </div>
     
-    <div class="toast" id="toastMessage"></div>
+    <div class="toast" id="toast"></div>
     
     <script>
-    // Application
-    const SecureThreads = {
         // DOM Elements
-        elements: {
-            nfcStatus: null,
-            statusText: null,
-            statusBadge: null,
-            headerTitle: null,
-            backButton: null,
-            mainContent: null,
-            threadList: null,
-            createButton: null,
-            createThreadSheet: null,
-            nfcSheet: null,
-            overlay: null,
-            threadTitle: null,
-            threadDescription: null,
-            selectableReaders: null,
-            createThreadButton: null,
-            cancelThreadButton: null,
-            cancelNfcButton: null,
-            composeArea: null,
-            messageInput: null,
-            sendButton: null,
-            toastMessage: null
-        },
+        const nfcStatus = document.getElementById('nfcStatus');
+        const statusText = document.getElementById('statusText');
+        const headerTitle = document.getElementById('headerTitle');
+        const backButton = document.getElementById('backButton');
+        const mainContent = document.getElementById('mainContent');
+        let threadList = document.getElementById('threadList');
+        const createButton = document.getElementById('createButton');
+        const createThreadSheet = document.getElementById('createThreadSheet');
+        const nfcSheet = document.getElementById('nfcSheet');
+        const overlay = document.getElementById('overlay');
+        const threadTitle = document.getElementById('threadTitle');
+        const threadDescription = document.getElementById('threadDescription');
+        const selectableReaders = document.getElementById('selectableReaders');
+        const createThreadButton = document.getElementById('createThreadButton');
+        const cancelThreadButton = document.getElementById('cancelThreadButton');
+        const cancelNfcButton = document.getElementById('cancelNfcButton');
+        const composeArea = document.getElementById('composeArea');
+        const messageInput = document.getElementById('messageInput');
+        const sendButton = document.getElementById('sendButton');
+        const toast = document.getElementById('toast');
         
-        // State
-        state: {
-            currentNFCKey: null,
-            currentNFCData: null,
-            pendingAction: null,
-            currentView: 'threads', // 'threads' or 'thread'
-            currentThreadId: null,
-            isProcessing: false,
-            isNFCScanning: false
-        },
+        // App State
+        let currentNFCKey = null;
+        let currentNFCData = null;
+        let pendingAction = null;
+        let currentView = 'threads'; // 'threads' or 'messages'
+        let currentThreadId = null;
         
-        /**
-         * Initialize the application
-         */
-        init() {
-            this.bindElements();
-            this.bindEvents();
-            this.loadThreads();
-            this.updateNFCStatus();
-        },
+        // Thread item click handler with debounce
+        function handleThreadClick(threadCard, threadId) {
+            // Use a data attribute to track click state
+            if (threadCard.getAttribute('data-processing') === 'true') {
+                return; // Prevent multiple rapid clicks
+            }
+            
+            threadCard.setAttribute('data-processing', 'true');
+            
+            if (threadCard.classList.contains('locked')) {
+                showToast('Scan your NFC token to unlock this thread');
+                showNfcSheet();
+            } else {
+                openThread(threadId);
+            }
+            
+            // Reset processing state after a short delay
+            setTimeout(() => {
+                threadCard.setAttribute('data-processing', 'false');
+            }, 500);
+        }
         
-        /**
-         * Bind DOM elements to the elements object
-         */
-        bindElements() {
-            const elements = this.elements;
+        // Function to initialize threads
+        async function initializeThreads() {
+            threadList.innerHTML = '';
             
-            elements.nfcStatus = document.getElementById('nfcStatus');
-            elements.statusText = document.getElementById('statusText');
-            elements.statusBadge = document.getElementById('statusBadge');
-            elements.headerTitle = document.getElementById('headerTitle');
-            elements.backButton = document.getElementById('backButton');
-            elements.mainContent = document.getElementById('mainContent');
-            elements.threadList = document.getElementById('threadList');
-            elements.createButton = document.getElementById('createButton');
-            elements.createThreadSheet = document.getElementById('createThreadSheet');
-            elements.nfcSheet = document.getElementById('nfcSheet');
-            elements.overlay = document.getElementById('overlay');
-            elements.threadTitle = document.getElementById('threadTitle');
-            elements.threadDescription = document.getElementById('threadDescription');
-            elements.selectableReaders = document.getElementById('selectableReaders');
-            elements.createThreadButton = document.getElementById('createThreadButton');
-            elements.cancelThreadButton = document.getElementById('cancelThreadButton');
-            elements.cancelNfcButton = document.getElementById('cancelNfcButton');
-            elements.composeArea = document.getElementById('composeArea');
-            elements.messageInput = document.getElementById('messageInput');
-            elements.sendButton = document.getElementById('sendButton');
-            elements.toastMessage = document.getElementById('toastMessage');
-        },
+            // Get all stored thread keys
+            const keys = await localforage.keys();
+            const threadKeys = keys.filter(key => key.startsWith('thread_'));
+            
+            if (threadKeys.length === 0) {
+                threadList.innerHTML = `
+                    <div class="empty-state">
+                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                            <path d="M8 12H16M8 16H13M9 4H15L19 8V20H5V4H9Z" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <p>No discussion threads yet. Tap + to create one.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            // Load and display each thread
+            for (const key of threadKeys) {
+                const threadData = await localforage.getItem(key);
+                
+                // Create thread card element
+                const threadCard = document.createElement('div');
+                threadCard.className = 'thread-card';
+                threadCard.setAttribute('data-thread-id', key);
+                threadCard.setAttribute('data-processing', 'false');
+                
+                if (!currentNFCKey) {
+                    // If no NFC token, display as locked
+                    threadCard.classList.add('locked');
+                    threadCard.innerHTML = `
+                        <div class="thread-title">Encrypted Thread</div>
+                        <div class="thread-preview">Scan your NFC token to unlock this thread</div>
+                        <div class="lock-icon">🔒</div>
+                    `;
+                } else {
+                    // Check if this user can decrypt the thread
+                    try {
+                        // Check if this user has permission to decrypt
+                        if (!threadData.encryptedKeys || !threadData.encryptedKeys[currentNFCKey]) {
+                            threadCard.classList.add('locked');
+                            threadCard.innerHTML = `
+                                <div class="thread-title">Encrypted Thread</div>
+                                <div class="thread-preview">You don't have permission to view this thread</div>
+                                <div class="lock-icon">🔒</div>
+                            `;
+                            continue;
+                        }
+                        
+                        // Decrypt the thread key using reader's token
+                        const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                        const threadKey = CryptoJS.AES.decrypt(
+                            encryptedThreadKey,
+                            currentNFCKey
+                        ).toString(CryptoJS.enc.Utf8);
+                        
+                        // Now use the thread key to decrypt the thread data
+                        const decryptedData = JSON.parse(CryptoJS.AES.decrypt(
+                            threadData.encryptedData,
+                            threadKey
+                        ).toString(CryptoJS.enc.Utf8));
+                        
+                        // User can decrypt, show thread details
+                        threadCard.innerHTML = `
+                            <div class="thread-title">${decryptedData.title}</div>
+                            <div class="thread-preview">${decryptedData.description || 'No description'}</div>
+                            <div class="thread-meta">
+                                <div class="thread-date">${new Date(threadData.createdAt).toLocaleDateString()}</div>
+                                <div class="thread-participants">
+                                    ${generateParticipantBadges(threadData.allowedReaders)}
+                                </div>
+                            </div>
+                        `;
+                    } catch (e) {
+                        // Cannot decrypt, show as locked
+                        threadCard.classList.add('locked');
+                        threadCard.innerHTML = `
+                            <div class="thread-title">Encrypted Thread</div>
+                            <div class="thread-preview">You don't have permission to view this thread</div>
+                            <div class="lock-icon">🔒</div>
+                        `;
+                    }
+                }
+                
+                // Add click event to open thread
+                threadCard.addEventListener('click', () => {
+                    handleThreadClick(threadCard, key);
+                });
+                
+                threadList.appendChild(threadCard);
+            }
+        }
         
-        /**
-         * Bind event listeners
-         */
-        bindEvents() {
-            const elements = this.elements;
+        // Generate participant badges (initials)
+        function generateParticipantBadges(readers) {
+            let badges = '';
+            const readerIds = readers.map(reader => {
+                if (typeof reader === 'string') {
+                    return reader;
+                } else if (reader.id) {
+                    return reader.id;
+                }
+                return 'Unknown';
+            });
             
-            // NFC scan trigger
-            elements.statusBadge.addEventListener('click', () => this.startNFCScan());
+            // Show up to 3 badges
+            for (let i = 0; i < Math.min(readerIds.length, 3); i++) {
+                const initial = readerIds[i].charAt(0).toUpperCase();
+                badges += `<div class="participant-badge">${initial}</div>`;
+            }
             
-            // Back button
-            elements.backButton.addEventListener('click', () => this.navigateToThreads());
+            // If there are more readers, add a +X badge
+            if (readerIds.length > 3) {
+                badges += `<div class="participant-badge">+${readerIds.length - 3}</div>`;
+            }
             
-            // Create thread button
-            elements.createButton.addEventListener('click', () => this.openCreateThreadSheet());
+            return badges;
+        }
+        
+        // Open a specific thread and show its messages
+        async function openThread(threadId) {
+            // Prevent multiple clicks from creating duplicates
+            if (currentThreadId === threadId && currentView === 'messages') {
+                return; // Already viewing this thread, don't reopen
+            }
             
-            // Create thread sheet buttons
-            elements.createThreadButton.addEventListener('click', () => this.createThread());
-            elements.cancelThreadButton.addEventListener('click', () => this.closeCreateThreadSheet());
+            // Save thread ID to state
+            currentThreadId = threadId;
+            currentView = 'messages';
             
-            // NFC sheet button
-            elements.cancelNfcButton.addEventListener('click', () => this.closeNFCSheet());
+            // Update UI for thread view
+            headerTitle.textContent = 'Loading...';
+            backButton.style.display = 'block';
+            createButton.style.display = 'none';
+            composeArea.style.display = 'flex';
             
-            // Send message button
-            elements.sendButton.addEventListener('click', () => this.sendMessage());
+            // Get thread data
+            const threadData = await localforage.getItem(threadId);
+            let decryptedData;
             
-            // Send on Enter key (but Shift+Enter for new line)
-            elements.messageInput.addEventListener('keydown', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    this.sendMessage();
+            try {
+                // First, we need to decrypt the thread key using the reader's token
+                if (!threadData.encryptedKeys || !threadData.encryptedKeys[currentNFCKey]) {
+                    showToast('You do not have permission to access this thread');
+                    backToThreads();
+                    return;
+                }
+                
+                // Get the thread key that was encrypted with this reader's token
+                const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                const threadKey = CryptoJS.AES.decrypt(
+                    encryptedThreadKey,
+                    currentNFCKey
+                ).toString(CryptoJS.enc.Utf8);
+                
+                // Now use the thread key to decrypt the actual thread data
+                decryptedData = JSON.parse(CryptoJS.AES.decrypt(
+                    threadData.encryptedData,
+                    threadKey
+                ).toString(CryptoJS.enc.Utf8));
+                
+                // Update header with thread title
+                headerTitle.textContent = decryptedData.title;
+            } catch (e) {
+                showToast('Failed to decrypt thread');
+                return;
+            }
+            
+            // First check if we already have this thread open
+            if (currentThreadId === threadId) {
+                return; // Don't reload if already viewing
+            }
+            
+            // Clear any existing message content to prevent duplication
+            const existingContainer = document.getElementById('messageContainer');
+            if (existingContainer) {
+                existingContainer.innerHTML = '';
+            } else {
+                // Clear content area and prepare for messages
+                mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
+            }
+            
+            const messageContainer = document.getElementById('messageContainer');
+            
+            // Load thread messages
+            const messages = await loadThreadMessages(threadId);
+            
+            if (messages.length === 0) {
+                messageContainer.innerHTML = `
+                    <div class="empty-state">
+                        <p>No messages yet. Start the conversation!</p>
+                    </div>
+                `;
+            } else {
+                // Display messages
+                for (const message of messages) {
+                    const messageCard = document.createElement('div');
+                    let messageText, isSelf;
+                    
+                    try {
+                        // Get the thread data to access the thread key
+                        const threadData = await localforage.getItem(currentThreadId);
+                        
+                        // Decrypt the thread key using reader's token
+                        const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                        const threadKey = CryptoJS.AES.decrypt(
+                            encryptedThreadKey,
+                            currentNFCKey
+                        ).toString(CryptoJS.enc.Utf8);
+                        
+                        // Use the thread key to decrypt the message
+                        const decrypted = JSON.parse(CryptoJS.AES.decrypt(
+                            message.encryptedContent,
+                            threadKey
+                        ).toString(CryptoJS.enc.Utf8));
+                        
+                        messageText = decrypted.text;
+                        isSelf = message.senderId === currentNFCKey;
+                        
+                        // Set classes based on sender
+                        messageCard.className = `message-card ${isSelf ? 'self' : 'other'}`;
+                        
+                        // Create message content
+                        messageCard.innerHTML = `
+                            <div class="message-author">${isSelf ? 'You' : (decrypted.senderName || 'User')}</div>
+                            <div class="message-content">${messageText}</div>
+                            <div class="message-time">${new Date(message.timestamp).toLocaleTimeString()}</div>
+                        `;
+                    } catch (e) {
+                        // Cannot decrypt, show encrypted message
+                        messageCard.className = 'message-card encrypted';
+                        messageCard.innerHTML = `
+                            <div class="lock-icon">🔒</div>
+                            <div>Encrypted message</div>
+                        `;
+                    }
+                    
+                    messageContainer.appendChild(messageCard);
+                }
+                
+                // Scroll to bottom
+                messageContainer.scrollTop = messageContainer.scrollHeight;
+            }
+        }
+        
+        // Load messages for a specific thread
+        async function loadThreadMessages(threadId) {
+            // Get all message keys for this thread
+            const keys = await localforage.keys();
+            const messageKeys = keys.filter(key => key.startsWith(`message_${threadId}_`));
+            
+            const messages = [];
+            
+            for (const key of messageKeys) {
+                const message = await localforage.getItem(key);
+                if (message) {
+                    messages.push({
+                        id: key,
+                        ...message
+                    });
+                }
+            }
+            
+            // Sort by timestamp
+            return messages.sort((a, b) => a.timestamp - b.timestamp);
+        }
+        
+        // Go back to thread list view
+        function backToThreads() {
+            // Check if we're switching to a different view
+            if (currentView !== 'threads') {
+                mainContent.innerHTML = '<div class="thread-list" id="threadList"></div>';
+                threadList = document.getElementById('threadList');
+                currentView = 'threads';
+                currentThreadId = null;
+            }
+            
+            // Reset UI
+            headerTitle.textContent = 'Discussion Threads';
+            backButton.style.display = 'none';
+            createButton.style.display = 'block';
+            composeArea.style.display = 'none';
+            
+            // Redisplay thread list
+            initializeThreads();
+        }
+        
+        // Show create thread sheet
+        function showCreateThread() {
+            if (!currentNFCKey) {
+                showToast('Please scan NFC token first');
+                pendingAction = 'create_thread';
+                showNfcSheet();
+                return;
+            }
+            
+            // Clear form fields
+            threadTitle.value = '';
+            threadDescription.value = '';
+            
+            // Populate reader list for selection
+            populateReaderList();
+            
+            // Show the sheet
+            createThreadSheet.classList.add('active');
+            overlay.classList.add('active');
+        }
+        
+        // Populate reader selection list
+        function populateReaderList() {
+            selectableReaders.innerHTML = '';
+            
+            if (!currentNFCData || !currentNFCData.readers) {
+                selectableReaders.innerHTML = '<div class="reader-item">No readers available on your NFC tag</div>';
+                return;
+            }
+            
+            // Add owner as first option (always selected and disabled)
+            const ownerItem = document.createElement('div');
+            ownerItem.className = 'reader-item';
+            ownerItem.innerHTML = `
+                <input type="checkbox" class="reader-checkbox" checked disabled>
+                <div>
+                    <strong>Owner (You)</strong><br>
+                    <span class="token-display">${currentNFCKey}</span>
+                </div>
+            `;
+            selectableReaders.appendChild(ownerItem);
+            
+            // Add each reader from NFC data
+            currentNFCData.readers.forEach(reader => {
+                const readerItem = document.createElement('div');
+                readerItem.className = 'reader-item';
+                readerItem.innerHTML = `
+                    <input type="checkbox" class="reader-checkbox" data-reader-id="${reader.id}" data-reader-token="${reader.token}">
+                    <div>
+                        <strong>${reader.id}</strong><br>
+                        <span class="token-display">${reader.token}</span>
+                    </div>
+                `;
+                selectableReaders.appendChild(readerItem);
+            });
+        }
+        
+        // Create a new thread
+        async function createThread() {
+            const title = threadTitle.value.trim();
+            if (!title) {
+                showToast('Thread title is required');
+                return;
+            }
+            
+            // Get selected readers
+            const selectedReaders = [];
+            const checkboxes = selectableReaders.querySelectorAll('.reader-checkbox');
+            
+            // Always add owner
+            selectedReaders.push(currentNFCKey);
+            
+            // Add selected readers
+            checkboxes.forEach(checkbox => {
+                if (checkbox.checked && !checkbox.disabled) {
+                    selectedReaders.push(checkbox.getAttribute('data-reader-token'));
                 }
             });
             
-            // Handle clicking overlay to close sheets
-            elements.overlay.addEventListener('click', () => {
-                this.closeCreateThreadSheet();
-                this.closeNFCSheet();
-            });
-        },
+            try {
+                // Generate thread ID
+                const threadId = `thread_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                
+                // Create thread data that will be encrypted
+                const threadData = {
+                    title: title,
+                    description: threadDescription.value.trim(),
+                    createdBy: currentNFCKey,
+                    createdAt: Date.now()
+                };
+                
+                // Create a shared secret key that all readers can use
+                // We'll use the threadId as the encryption key so all authorized readers can decrypt
+                const threadKey = CryptoJS.SHA256(threadId).toString().substring(0, 32);
+                
+                // Encrypt thread data with the shared thread key
+                const encryptedData = CryptoJS.AES.encrypt(
+                    JSON.stringify(threadData),
+                    threadKey
+                ).toString();
+                
+                // Now encrypt the threadKey with each reader's token
+                // so only authorized readers can get the decryption key
+                const encryptedKeys = {};
+                
+                // Encrypt the thread key individually for each allowed reader
+                for (const readerToken of selectedReaders) {
+                    encryptedKeys[readerToken] = CryptoJS.AES.encrypt(
+                        threadKey, 
+                        readerToken
+                    ).toString();
+                }
+                
+                // Store thread with metadata
+                await localforage.setItem(threadId, {
+                    encryptedData: encryptedData,
+                    encryptedKeys: encryptedKeys,
+                    allowedReaders: selectedReaders,
+                    createdAt: Date.now()
+                });
+                
+                // Close the sheet and show success message
+                hideCreateThreadSheet();
+                showToast('Thread created successfully');
+                
+                // Refresh thread list
+                initializeThreads();
+            } catch (error) {
+                console.error('Error creating thread:', error);
+                showToast('Error creating thread');
+            }
+        }
         
-        /**
-         * Show a toast message
-         * @param {string} message - The message to display
-         * @param {number} duration - Duration in milliseconds (default: 3000)
-         */
-        showToast(message, duration = 3000) {
-            const toast = this.elements.toastMessage;
-            toast.textContent = message;
-            toast.classList.add('active');
-            
-            setTimeout(() => {
-                toast.classList.remove('active');
-            }, duration);
-        },
+        // Hide create thread sheet
+        function hideCreateThreadSheet() {
+            createThreadSheet.classList.remove('active');
+            overlay.classList.remove('active');
+        }
         
-        /**
-         * Update the NFC status indicator
-         */
-        updateNFCStatus() {
-            const { nfcStatus, statusText } = this.elements;
-            const { currentNFCKey } = this.state;
+        // Send a message in the current thread
+        async function sendMessage() {
+            if (!currentThreadId || !currentNFCKey) {
+                showToast('Unable to send message');
+                return;
+            }
             
+            const messageText = messageInput.value.trim();
+            if (!messageText) {
+                return;
+            }
+            
+            try {
+                // Get thread data to get allowed readers
+                const threadData = await localforage.getItem(currentThreadId);
+                if (!threadData || !threadData.allowedReaders) {
+                    showToast('Thread data not found');
+                    return;
+                }
+                
+                // Create message object
+                const messageData = {
+                    text: messageText,
+                    senderName: 'You', // Could be customized in a real app
+                    senderId: currentNFCKey
+                };
+                
+                // Get the thread key to encrypt this message
+                const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
+                const threadKey = CryptoJS.AES.decrypt(
+                    encryptedThreadKey,
+                    currentNFCKey
+                ).toString(CryptoJS.enc.Utf8);
+                
+                // Encrypt message with the thread key (not the sender's key)
+                // This ensures all authorized readers can decrypt
+                const encryptedContent = CryptoJS.AES.encrypt(
+                    JSON.stringify(messageData),
+                    threadKey
+                ).toString();
+                
+                // Generate message ID
+                const messageId = `message_${currentThreadId}_${Date.now()}`;
+                
+                // Store message
+                await localforage.setItem(messageId, {
+                    threadId: currentThreadId,
+                    encryptedContent: encryptedContent,
+                    senderId: currentNFCKey,
+                    allowedReaders: threadData.allowedReaders,
+                    timestamp: Date.now()
+                });
+                
+                // Clear input
+                messageInput.value = '';
+                
+                // Refresh thread messages
+                openThread(currentThreadId);
+            } catch (error) {
+                console.error('Error sending message:', error);
+                showToast('Error sending message');
+            }
+        }
+        
+        // NFC scan completing handler
+        function handleNfcScanComplete(tagData) {
+            try {
+                // Store NFC tag data
+                currentNFCKey = tagData.owner.token;
+                currentNFCData = tagData;
+                
+                // Update NFC status indicator
+                updateNFCStatus();
+                
+                // Clear and refresh based on current view
+                if (currentView === 'threads') {
+                    // Just refresh the threads
+                    initializeThreads();
+                } else if (currentView === 'messages' && currentThreadId) {
+                    // Re-open the current thread to refresh
+                    const savedThreadId = currentThreadId;
+                    // Reset view state to force refresh
+                    currentView = 'threads';
+                    currentThreadId = null;
+                    // Then open thread
+                    openThread(savedThreadId);
+                }
+                
+                // Close NFC sheet
+                hideNfcSheet();
+                
+                // Check if we had a pending action
+                if (pendingAction === 'create_thread') {
+                    pendingAction = null;
+                    showCreateThread();
+                }
+                
+                showToast('NFC Token Scanned Successfully');
+            } catch (error) {
+                console.error('Error processing NFC data:', error);
+                showToast('Error processing NFC data');
+            }
+        }
+        
+        // Update NFC status indicator
+        function updateNFCStatus() {
             if (currentNFCKey) {
                 nfcStatus.classList.add('active');
                 statusText.textContent = 'NFC Active';
@@ -718,672 +1183,75 @@
                 nfcStatus.classList.remove('active');
                 statusText.textContent = 'Tap to scan NFC';
             }
-        },
+        }
         
-        /**
-         * Load and display all threads
-         */
-        async loadThreads() {
-            const { threadList } = this.elements;
-            
-            // Clear existing threads
-            threadList.innerHTML = '';
-            
-            try {
-                // Get all thread keys
-                const keys = await localforage.keys();
-                const threadKeys = keys.filter(key => key.startsWith('thread_'));
-                
-                // Handle empty state
-                if (threadKeys.length === 0) {
-                    threadList.innerHTML = `
-                        <div class="empty-state">
-                            <svg width="64" height="64" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M8 12H16M8 16H13M9 4H15L19 8V20H5V4H9Z" stroke="#9CA3AF" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                            <p>No discussion threads yet. Tap + to create one.</p>
-                        </div>
-                    `;
-                    return;
-                }
-                
-                // Create a document fragment for better performance
-                const fragment = document.createDocumentFragment();
-                
-                // Load each thread
-                for (const key of threadKeys) {
-                    const threadData = await localforage.getItem(key);
-                    if (!threadData) continue;
-                    
-                    const threadCard = document.createElement('div');
-                    threadCard.className = 'thread-card';
-                    threadCard.dataset.threadId = key;
-                    
-                    if (!this.state.currentNFCKey) {
-                        // Locked state if no NFC key
-                        threadCard.classList.add('locked');
-                        threadCard.innerHTML = `
-                            <div class="thread-title">Encrypted Thread</div>
-                            <div class="thread-preview">Scan your NFC token to unlock this thread</div>
-                            <div class="lock-icon">🔒</div>
-                        `;
-                    } else {
-                        // Check if current user has access
-                        const { currentNFCKey } = this.state;
-                        const canAccess = threadData.encryptedKeys && 
-                                         threadData.encryptedKeys[currentNFCKey];
-                        
-                        if (canAccess) {
-                            try {
-                                // Decrypt the thread key using reader's token
-                                const encryptedThreadKey = threadData.encryptedKeys[currentNFCKey];
-                                const threadKey = CryptoJS.AES.decrypt(
-                                    encryptedThreadKey,
-                                    currentNFCKey
-                                ).toString(CryptoJS.enc.Utf8);
-                                
-                                // Decrypt thread data
-                                const decryptedData = JSON.parse(CryptoJS.AES.decrypt(
-                                    threadData.encryptedData,
-                                    threadKey
-                                ).toString(CryptoJS.enc.Utf8));
-                                
-                                // Show thread details
-                                threadCard.innerHTML = `
-                                    <div class="thread-title">${this.escapeHTML(decryptedData.title)}</div>
-                                    <div class="thread-preview">${this.escapeHTML(decryptedData.description || 'No description')}</div>
-                                    <div class="thread-meta">
-                                        <div class="thread-date">${new Date(threadData.createdAt).toLocaleDateString()}</div>
-                                        <div class="thread-participants">
-                                            ${this.generateParticipantBadges(threadData.allowedReaders)}
-                                        </div>
-                                    </div>
-                                `;
-                            } catch (e) {
-                                console.error('Error decrypting thread:', e);
-                                threadCard.classList.add('locked');
-                                threadCard.innerHTML = `
-                                    <div class="thread-title">Encrypted Thread</div>
-                                    <div class="thread-preview">Error decrypting this thread</div>
-                                    <div class="lock-icon">🔒</div>
-                                `;
-                            }
-                        } else {
-                            // No access
-                            threadCard.classList.add('locked');
-                            threadCard.innerHTML = `
-                                <div class="thread-title">Encrypted Thread</div>
-                                <div class="thread-preview">You don't have permission to view this thread</div>
-                                <div class="lock-icon">🔒</div>
-                            `;
-                        }
-                    }
-                    
-                    // Add click event using data attribute instead of closures
-                    threadCard.addEventListener('click', this.handleThreadClick.bind(this));
-                    
-                    fragment.appendChild(threadCard);
-                }
-                
-                // Append all threads at once
-                threadList.appendChild(fragment);
-                
-            } catch (error) {
-                console.error('Error loading threads:', error);
-                this.showToast('Error loading threads');
-                threadList.innerHTML = `
-                    <div class="empty-state">
-                        <p>Error loading threads. Please try again.</p>
-                    </div>
-                `;
-            }
-        },
+        // Show NFC sheet for scanning
+        function showNfcSheet() {
+            nfcSheet.classList.add('active');
+            overlay.classList.add('active');
+            scanNFCToken();
+        }
         
-        /**
-         * Handle thread click event
-         * @param {Event} e - Click event
-         */
-        handleThreadClick(e) {
-            const card = e.currentTarget;
-            const threadId = card.dataset.threadId;
-            
-            if (!threadId) return;
-            
-            // If thread is locked, prompt for NFC scan
-            if (card.classList.contains('locked')) {
-                this.showToast('Scan your NFC token to unlock this thread');
-                this.startNFCScan();
-                return;
-            }
-            
-            // Open thread if unlocked
-            this.openThread(threadId);
-        },
+        // Hide NFC sheet
+        function hideNfcSheet() {
+            nfcSheet.classList.remove('active');
+            overlay.classList.remove('active');
+        }
         
-        /**
-         * Open a specific thread and display its messages
-         * @param {string} threadId - The ID of the thread to open
-         */
-        async openThread(threadId) {
-            // Prevent multiple opens or if already on this thread
-            if (this.state.isProcessing || 
-               (this.state.currentView === 'thread' && this.state.currentThreadId === threadId)) {
-                return;
-            }
+        // Show toast message
+        function showToast(message) {
+            toast.textContent = message;
+            toast.classList.add('active');
             
-            this.state.isProcessing = true;
-            
-            try {
-                // Update app state
-                this.state.currentView = 'thread';
-                this.state.currentThreadId = threadId;
-                
-                // Update UI
-                const { headerTitle, backButton, createButton, composeArea, mainContent } = this.elements;
-                
-                headerTitle.textContent = 'Loading...';
-                backButton.style.display = 'block';
-                createButton.style.display = 'none';
-                composeArea.style.display = 'flex';
-                
-                // Clear main content and create message container
-                mainContent.innerHTML = '<div class="message-list" id="messageContainer"></div>';
-                const messageContainer = document.getElementById('messageContainer');
-                
-                // Get thread data
-                const threadData = await localforage.getItem(threadId);
-                if (!threadData) {
-                    throw new Error('Thread not found');
-                }
-                
-                // Check for access
-                if (!threadData.encryptedKeys || !threadData.encryptedKeys[this.state.currentNFCKey]) {
-                    throw new Error('No permission to access this thread');
-                }
-                
-                // Decrypt thread key
-                const encryptedThreadKey = threadData.encryptedKeys[this.state.currentNFCKey];
-                const threadKey = CryptoJS.AES.decrypt(
-                    encryptedThreadKey,
-                    this.state.currentNFCKey
-                ).toString(CryptoJS.enc.Utf8);
-                
-                // Decrypt thread data
-                const decryptedData = JSON.parse(CryptoJS.AES.decrypt(
-                    threadData.encryptedData,
-                    threadKey
-                ).toString(CryptoJS.enc.Utf8));
-                
-                // Update header title
-                headerTitle.textContent = decryptedData.title;
-                
-                // Load thread messages
-                const messages = await this.loadThreadMessages(threadId, threadKey);
-                
-                // Display messages
-                if (messages.length === 0) {
-                    messageContainer.innerHTML = `
-                        <div class="empty-state">
-                            <p>No messages yet. Start the conversation!</p>
-                        </div>
-                    `;
-                } else {
-                    // Create a document fragment for better performance
-                    const fragment = document.createDocumentFragment();
-                    
-                    for (const message of messages) {
-                        const messageCard = document.createElement('div');
-                        const isSelf = message.senderId === this.state.currentNFCKey;
-                        
-                        // Set classes based on sender
-                        messageCard.className = `message-card ${isSelf ? 'self' : 'other'}`;
-                        
-                        // Create message content
-                        messageCard.innerHTML = `
-                            <div class="message-author">${this.escapeHTML(message.senderName || (isSelf ? 'You' : 'User'))}</div>
-                            <div class="message-content">${this.escapeHTML(message.text)}</div>
-                            <div class="message-time">${new Date(message.timestamp).toLocaleTimeString()}</div>
-                        `;
-                        
-                        fragment.appendChild(messageCard);
-                    }
-                    
-                    messageContainer.appendChild(fragment);
-                    
-                    // Scroll to bottom
-                    setTimeout(() => {
-                        messageContainer.scrollTop = messageContainer.scrollHeight;
-                    }, 100);
-                }
-            } catch (error) {
-                console.error('Error opening thread:', error);
-                this.showToast(error.message || 'Error opening thread');
-                this.navigateToThreads();
-            } finally {
-                this.state.isProcessing = false;
-            }
-        },
+            setTimeout(() => {
+                toast.classList.remove('active');
+            }, 3000);
+        }
         
-        /**
-         * Load messages for a specific thread
-         * @param {string} threadId - The ID of the thread
-         * @param {string} threadKey - Decryption key for the thread
-         * @returns {Array} - Array of decrypted messages
-         */
-        async loadThreadMessages(threadId, threadKey) {
-            try {
-                // Get all message keys for this thread
-                const keys = await localforage.keys();
-                const messageKeys = keys.filter(key => key.startsWith(`message_${threadId}_`));
-                
-                // Array to store decrypted messages
-                const decryptedMessages = [];
-                
-                // Process each message
-                for (const key of messageKeys) {
-                    try {
-                        const encryptedMessage = await localforage.getItem(key);
-                        if (!encryptedMessage) continue;
-                        
-                        // Decrypt message content
-                        const messageData = JSON.parse(CryptoJS.AES.decrypt(
-                            encryptedMessage.encryptedContent,
-                            threadKey
-                        ).toString(CryptoJS.enc.Utf8));
-                        
-                        // Add message metadata
-                        decryptedMessages.push({
-                            id: key,
-                            text: messageData.text,
-                            senderName: messageData.senderName,
-                            senderId: encryptedMessage.senderId,
-                            timestamp: encryptedMessage.timestamp
-                        });
-                    } catch (e) {
-                        console.error('Error decrypting message:', e);
-                        // Skip failed messages
-                    }
-                }
-                
-                // Sort by timestamp
-                return decryptedMessages.sort((a, b) => a.timestamp - b.timestamp);
-            } catch (error) {
-                console.error('Error loading messages:', error);
-                return [];
-            }
-        },
-        
-        /**
-         * Navigate back to the threads list
-         */
-        navigateToThreads() {
-            // Prevent navigation if already on threads view
-            if (this.state.currentView === 'threads') return;
-            
-            // Update app state
-            this.state.currentView = 'threads';
-            this.state.currentThreadId = null;
-            
-            // Update UI
-            const { headerTitle, backButton, createButton, composeArea, mainContent } = this.elements;
-            
-            headerTitle.textContent = 'Discussion Threads';
-            backButton.style.display = 'none';
-            createButton.style.display = 'block';
-            composeArea.style.display = 'none';
-            
-            // Reset and reload threads
-            mainContent.innerHTML = '<div class="thread-list" id="threadList"></div>';
-            this.elements.threadList = document.getElementById('threadList');
-            this.loadThreads();
-        },
-        
-        /**
-         * Open the thread creation sheet
-         */
-        openCreateThreadSheet() {
-            // Require NFC authentication
-            if (!this.state.currentNFCKey) {
-                this.showToast('Please scan NFC token first');
-                this.state.pendingAction = 'create_thread';
-                this.startNFCScan();
-                return;
-            }
-            
-            // Clear form
-            const { threadTitle, threadDescription } = this.elements;
-            threadTitle.value = '';
-            threadDescription.value = '';
-            
-            // Populate reader selection
-            this.populateReaderList();
-            
-            // Show sheet
-            this.elements.createThreadSheet.classList.add('active');
-            this.elements.overlay.classList.add('active');
-        },
-        
-        /**
-         * Close the thread creation sheet
-         */
-        closeCreateThreadSheet() {
-            this.elements.createThreadSheet.classList.remove('active');
-            this.elements.overlay.classList.remove('active');
-        },
-        
-        /**
-         * Populate the reader selection list
-         */
-        populateReaderList() {
-            const { selectableReaders } = this.elements;
-            const { currentNFCData, currentNFCKey } = this.state;
-            
-            // Clear existing content
-            selectableReaders.innerHTML = '';
-            
-            if (!currentNFCData || !currentNFCData.readers || currentNFCData.readers.length === 0) {
-                selectableReaders.innerHTML = '<div class="reader-item">No readers available on your NFC tag</div>';
-                return;
-            }
-            
-            // Add owner first (always selected and disabled)
-            const ownerItem = document.createElement('div');
-            ownerItem.className = 'reader-item';
-            ownerItem.innerHTML = `
-                <input type="checkbox" id="owner-checkbox" class="reader-checkbox" checked disabled>
-                <label for="owner-checkbox">
-                    <strong>Owner (You)</strong><br>
-                    <span class="token-display">${this.truncateToken(currentNFCKey)}</span>
-                </label>
-            `;
-            selectableReaders.appendChild(ownerItem);
-            
-            // Add other readers
-            currentNFCData.readers.forEach((reader, index) => {
-                const readerId = `reader-${index}`;
-                const readerItem = document.createElement('div');
-                readerItem.className = 'reader-item';
-                readerItem.innerHTML = `
-                    <input type="checkbox" id="${readerId}" class="reader-checkbox" 
-                           data-reader-id="${this.escapeHTML(reader.id)}" 
-                           data-reader-token="${this.escapeHTML(reader.token)}">
-                    <label for="${readerId}">
-                        <strong>${this.escapeHTML(reader.id)}</strong><br>
-                        <span class="token-display">${this.truncateToken(reader.token)}</span>
-                    </label>
-                `;
-                selectableReaders.appendChild(readerItem);
-            });
-        },
-        
-        /**
-         * Create a new thread
-         */
-        async createThread() {
-            // Prevent multiple submissions
-            if (this.state.isProcessing) return;
-            this.state.isProcessing = true;
-            
-            try {
-                const { threadTitle, threadDescription } = this.elements;
-                const title = threadTitle.value.trim();
-                
-                // Validate input
-                if (!title) {
-                    this.showToast('Thread title is required');
-                    this.state.isProcessing = false;
-                    return;
-                }
-                
-                // Get selected readers
-                const selectedReaders = [];
-                const checkboxes = this.elements.selectableReaders.querySelectorAll('.reader-checkbox');
-                
-                // Always add owner
-                selectedReaders.push(this.state.currentNFCKey);
-                
-                // Add selected readers
-                checkboxes.forEach(checkbox => {
-                    if (checkbox.checked && !checkbox.disabled && checkbox.dataset.readerToken) {
-                        selectedReaders.push(checkbox.dataset.readerToken);
-                    }
-                });
-                
-                // Generate thread ID
-                const threadId = `thread_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
-                
-                // Create thread data
-                const threadData = {
-                    title: title,
-                    description: threadDescription.value.trim(),
-                    createdBy: this.state.currentNFCKey,
-                    createdAt: Date.now()
-                };
-                
-                // Generate a unique key for this thread (that all readers will use)
-                const threadKey = CryptoJS.SHA256(threadId).toString().substring(0, 32);
-                
-                // Encrypt the thread data with the thread key
-                const encryptedData = CryptoJS.AES.encrypt(
-                    JSON.stringify(threadData),
-                    threadKey
-                ).toString();
-                
-                // Create per-reader encrypted keys
-                const encryptedKeys = {};
-                
-                for (const readerToken of selectedReaders) {
-                    encryptedKeys[readerToken] = CryptoJS.AES.encrypt(
-                        threadKey,
-                        readerToken
-                    ).toString();
-                }
-                
-                // Store thread
-                await localforage.setItem(threadId, {
-                    encryptedData,
-                    encryptedKeys,
-                    allowedReaders: selectedReaders,
-                    createdAt: Date.now()
-                });
-                
-                // Success
-                this.showToast('Thread created successfully');
-                this.closeCreateThreadSheet();
-                this.loadThreads();
-            } catch (error) {
-                console.error('Error creating thread:', error);
-                this.showToast('Error creating thread');
-            } finally {
-                this.state.isProcessing = false;
-            }
-        },
-        
-        /**
-         * Send a message in the current thread
-         */
-        async sendMessage() {
-            // Verify we're in a thread view
-            if (this.state.currentView !== 'thread' || !this.state.currentThreadId) {
-                this.showToast('No active thread');
-                return;
-            }
-            
-            // Prevent multiple submissions
-            if (this.state.isProcessing) return;
-            
-            const { messageInput } = this.elements;
-            const messageText = messageInput.value.trim();
-            
-            if (!messageText) return;
-            
-            this.state.isProcessing = true;
-            
-            try {
-                // Get thread data
-                const threadData = await localforage.getItem(this.state.currentThreadId);
-                if (!threadData) {
-                    throw new Error('Thread not found');
-                }
-                
-                // Get thread key
-                const encryptedThreadKey = threadData.encryptedKeys[this.state.currentNFCKey];
-                const threadKey = CryptoJS.AES.decrypt(
-                    encryptedThreadKey,
-                    this.state.currentNFCKey
-                ).toString(CryptoJS.enc.Utf8);
-                
-                // Create message data
-                const messageData = {
-                    text: messageText,
-                    senderName: 'You',
-                };
-                
-                // Encrypt message with thread key
-                const encryptedContent = CryptoJS.AES.encrypt(
-                    JSON.stringify(messageData),
-                    threadKey
-                ).toString();
-                
-                // Generate message ID
-                const messageId = `message_${this.state.currentThreadId}_${Date.now()}`;
-                
-                // Store message
-                await localforage.setItem(messageId, {
-                    threadId: this.state.currentThreadId,
-                    encryptedContent,
-                    senderId: this.state.currentNFCKey,
-                    timestamp: Date.now()
-                });
-                
-                // Clear input
-                messageInput.value = '';
-                
-                // Refresh messages
-                const threadId = this.state.currentThreadId;
-                this.openThread(threadId);
-            } catch (error) {
-                console.error('Error sending message:', error);
-                this.showToast('Error sending message');
-            } finally {
-                this.state.isProcessing = false;
-            }
-        },
-        
-        /**
-         * Start NFC scanning
-         */
-        startNFCScan() {
-            // Prevent multiple scan attempts
-            if (this.state.isNFCScanning) return;
-            
-            // Show NFC sheet
-            this.elements.nfcSheet.classList.add('active');
-            this.elements.overlay.classList.add('active');
-            
-            // Start scanning
-            this.scanNFCToken();
-        },
-        
-        /**
-         * Close NFC sheet
-         */
-        closeNFCSheet() {
-            this.elements.nfcSheet.classList.remove('active');
-            this.elements.overlay.classList.remove('active');
-            this.state.isNFCScanning = false;
-        },
-        
-        /**
-         * Scan for NFC token
-         */
-        async scanNFCToken() {
-            this.state.isNFCScanning = true;
-            
+        // Scan NFC token
+        async function scanNFCToken() {
             if ('NDEFReader' in window) {
                 try {
-                    this.showToast('Scanning for NFC token...');
+                    showToast('Scanning for NFC token...');
                     const ndef = new NDEFReader();
                     await ndef.scan();
                     
-                    ndef.addEventListener("reading", ({ message }) => {
-                        this.handleNFCReading(message);
+                    ndef.addEventListener("reading", async ({ message }) => {
+                        const decoder = new TextDecoder();
+                        let tagData;
+                        
+                        try {
+                            tagData = JSON.parse(
+                                decoder.decode(message.records[0].data)
+                            );
+                            
+                            // Process NFC data through the handler
+                            handleNfcScanComplete(tagData);
+                        } catch (error) {
+                            showToast('Invalid NFC token format');
+                            console.error('NFC parse error:', error);
+                        }
                     });
                     
                 } catch (error) {
-                    console.error('NFC scan error:', error);
-                    this.showToast(`NFC Error: ${error.message || 'Failed to scan'}`);
-                    this.closeNFCSheet();
-                    this.state.isNFCScanning = false;
+                    showToast(`NFC Error: ${error}`);
+                    hideNfcSheet();
                 }
             } else {
-                this.showToast('NFC not supported on this device');
+                showToast('NFC not supported on this device');
                 
-                // For development/testing on non-NFC devices
+                // For testing on non-NFC devices, simulate a successful scan
                 if (confirm("NFC not supported. Simulate successful scan for testing?")) {
-                    this.simulateNFCScan();
+                    simulateNFCScan();
                 } else {
-                    this.closeNFCSheet();
-                    this.state.isNFCScanning = false;
+                    hideNfcSheet();
                 }
             }
-        },
+        }
         
-        /**
-         * Handle NFC reading
-         * @param {NDEFMessage} message - The NDEF message
-         */
-        handleNFCReading(message) {
-            try {
-                const decoder = new TextDecoder();
-                const nfcData = JSON.parse(decoder.decode(message.records[0].data));
-                
-                // Validate required structure
-                if (!nfcData.owner || !nfcData.owner.token) {
-                    throw new Error('Invalid NFC data format');
-                }
-                
-                // Set NFC state
-                this.state.currentNFCKey = nfcData.owner.token;
-                this.state.currentNFCData = nfcData;
-                
-                // Update UI
-                this.updateNFCStatus();
-                
-                // Handle view update based on current state
-                if (this.state.currentView === 'threads') {
-                    this.loadThreads();
-                } else if (this.state.currentView === 'thread' && this.state.currentThreadId) {
-                    // Re-open current thread with new credentials
-                    const threadId = this.state.currentThreadId;
-                    this.navigateToThreads();
-                    setTimeout(() => this.openThread(threadId), 100);
-                }
-                
-                // Close NFC sheet
-                this.closeNFCSheet();
-                
-                // Check for pending actions
-                if (this.state.pendingAction === 'create_thread') {
-                    this.state.pendingAction = null;
-                    this.openCreateThreadSheet();
-                }
-                
-                this.showToast('NFC Token Scanned Successfully');
-            } catch (error) {
-                console.error('NFC data parsing error:', error);
-                this.showToast('Invalid NFC token format');
-                this.closeNFCSheet();
-            } finally {
-                this.state.isNFCScanning = false;
-            }
-        },
-        
-        /**
-         * Simulate NFC scan for testing on devices without NFC
-         */
-        simulateNFCScan() {
-            // Mock NFC data
+        // Simulate NFC scan for testing
+        function simulateNFCScan() {
+            // Simulate the NFC data
             const mockNFCData = {
                 owner: {
                     id: "owner",
@@ -1396,87 +1264,49 @@
                 ]
             };
             
-            // Set NFC state
-            this.state.currentNFCKey = mockNFCData.owner.token;
-            this.state.currentNFCData = mockNFCData;
-            
-            // Update UI
-            this.updateNFCStatus();
-            
-            // Handle view update
-            if (this.state.currentView === 'threads') {
-                this.loadThreads();
-            } else if (this.state.currentView === 'thread' && this.state.currentThreadId) {
-                const threadId = this.state.currentThreadId;
-                this.navigateToThreads();
-                setTimeout(() => this.openThread(threadId), 100);
-            }
-            
-            // Close NFC sheet
-            this.closeNFCSheet();
-            
-            // Check for pending actions
-            if (this.state.pendingAction === 'create_thread') {
-                this.state.pendingAction = null;
-                this.openCreateThreadSheet();
-            }
-            
-            this.showToast('Simulated NFC Token Scan Successful');
-        },
-        
-        /**
-         * Generate participant badge HTML
-         * @param {Array} readers - Array of reader tokens
-         * @returns {string} - HTML for participant badges
-         */
-        generateParticipantBadges(readers) {
-            if (!readers || readers.length === 0) return '';
-            
-            let badges = '';
-            const readerIds = readers.map((reader, index) => `R${index + 1}`);
-            
-            // Show up to 3 badges
-            for (let i = 0; i < Math.min(readerIds.length, 3); i++) {
-                badges += `<div class="participant-badge">${readerIds[i]}</div>`;
-            }
-            
-            // If there are more readers, add a +X badge
-            if (readerIds.length > 3) {
-                badges += `<div class="participant-badge">+${readerIds.length - 3}</div>`;
-            }
-            
-            return badges;
-        },
-        
-        /**
-         * Escape HTML to prevent XSS
-         * @param {string} text - Text to escape
-         * @returns {string} - Escaped HTML
-         */
-        escapeHTML(text) {
-            if (!text) return '';
-            
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        },
-        
-        /**
-         * Truncate token for display
-         * @param {string} token - Token to truncate
-         * @returns {string} - Truncated token
-         */
-        truncateToken(token) {
-            if (!token) return '';
-            if (token.length <= 16) return token;
-            return token.substring(0, 8) + '...' + token.substring(token.length - 4);
+            // Process through the handler
+            handleNfcScanComplete(mockNFCData);
         }
-    };
-    
-    // Initialize the application when DOM is ready
-    document.addEventListener('DOMContentLoaded', () => {
-        SecureThreads.init();
-    });
+        
+        // Event listeners
+        document.addEventListener('DOMContentLoaded', () => {
+            // NFC status badge
+            statusText.addEventListener('click', showNfcSheet);
+            
+            // Create thread button
+            createButton.addEventListener('click', showCreateThread);
+            
+            // Create thread sheet buttons
+            createThreadButton.addEventListener('click', createThread);
+            cancelThreadButton.addEventListener('click', hideCreateThreadSheet);
+            
+            // NFC sheet button
+            cancelNfcButton.addEventListener('click', hideNfcSheet);
+            
+            // Back button
+            backButton.addEventListener('click', backToThreads);
+            
+            // Send message button
+            sendButton.addEventListener('click', sendMessage);
+            
+            // Send on Enter key (but Shift+Enter for new line)
+            messageInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            // Handle clicking outside sheets to close them
+            overlay.addEventListener('click', () => {
+                hideCreateThreadSheet();
+                hideNfcSheet();
+            });
+            
+            // Initialize the application
+            initializeThreads();
+            updateNFCStatus();
+        });
     </script>
 </body>
 </html>
