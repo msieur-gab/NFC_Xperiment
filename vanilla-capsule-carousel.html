@@ -581,9 +581,13 @@
         function collapseCapsule(capsule, vault, indicators, backArrow) {
             const capsuleIndex = Array.from(vault.children).indexOf(capsule);
             
-            // First, ensure we're still centered on the current capsule
-            // Don't change scroll position yet
-            vault.style.scrollBehavior = 'auto';
+            // Disable all transitions temporarily to prevent jumps
+            const oldTransition = vault.style.transition;
+            vault.style.transition = 'none';
+            
+            // Freeze the scroll position
+            const currentScrollLeft = vault.scrollLeft;
+            vault.style.overflow = 'hidden';
             
             // Remove expanded class but keep position
             capsule.classList.remove('expanded');
@@ -601,53 +605,64 @@
             // Remove expanded class from vault but maintain centering temporarily
             vault.classList.remove('has-expanded-capsule');
             
-            // Reset padding to original values but keep the capsule centered
-            vault.style.paddingLeft = 'calc(50% - 125px)';
-            vault.style.paddingRight = 'calc(50% - 125px)';
-            vault.style.gap = '16px';
+            // Force layout recalculation
+            void vault.offsetWidth;
             
-            // Ensure other capsules remain hidden during transition
-            Array.from(vault.children).forEach(c => {
-                if (c !== capsule) {
-                    c.style.opacity = '0';
-                }
-            });
-            
-            // Wait for size transition to complete before repositioning
+            // Re-enable transitions
             setTimeout(() => {
-                // Now reset all capsule styles
-                Array.from(vault.children).forEach(c => {
-                    c.style.position = '';
-                    c.style.opacity = '';
-                    c.style.pointerEvents = '';
-                    c.style.left = '';
-                    c.style.right = '';
-                    c.style.transform = '';
-                    c.style.margin = '';
-                    c.style.zIndex = '';
-                    c.style.visibility = '';
-                });
+                vault.style.transition = oldTransition;
                 
-                // Reset vault styles
-                vault.style.display = '';
-                vault.style.justifyContent = '';
-                vault.style.alignItems = '';
+                // Animate the capsule back to its original size
+                capsule.style.transition = 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)';
+                capsule.style.flexBasis = '250px';
+                capsule.style.height = '350px';
                 
-                // Remove the body class
-                document.body.classList.remove('has-expanded-capsule');
-                
-                // Re-enable smooth scrolling
-                vault.style.scrollBehavior = 'smooth';
-                
-                // Scroll to the correct index
-                scrollToIndex(vault, capsuleIndex);
-                
-                // Show indicators after scrolling is complete
+                // Wait for the size animation to complete
                 setTimeout(() => {
-                    indicators.classList.remove('hidden');
-                }, 300);
-                
-            }, CONSTANTS.COLLAPSE_DURATION / 2); // Use half the collapse duration for better timing
+                    // Now reset all capsule styles
+                    Array.from(vault.children).forEach(c => {
+                        c.style.position = '';
+                        c.style.opacity = '';
+                        c.style.pointerEvents = '';
+                        c.style.left = '';
+                        c.style.right = '';
+                        c.style.transform = '';
+                        c.style.margin = '';
+                        c.style.zIndex = '';
+                        c.style.visibility = '';
+                        c.style.transition = '';
+                        c.style.flexBasis = '';
+                        c.style.height = '';
+                    });
+                    
+                    // Reset vault styles
+                    vault.style.display = '';
+                    vault.style.justifyContent = '';
+                    vault.style.alignItems = '';
+                    vault.style.paddingLeft = 'calc(50% - 125px)';
+                    vault.style.paddingRight = 'calc(50% - 125px)';
+                    vault.style.gap = '16px';
+                    vault.style.overflow = 'scroll';
+                    
+                    // Remove the body class
+                    document.body.classList.remove('has-expanded-capsule');
+                    
+                    // Set scroll position directly to the correct capsule
+                    vault.scrollLeft = capsuleIndex * CONSTANTS.CAPSULE_FULL_WIDTH;
+                    
+                    // Force layout recalculation
+                    void vault.offsetWidth;
+                    
+                    // Re-enable smooth scrolling for future interactions
+                    vault.style.scrollBehavior = 'smooth';
+                    
+                    // Show indicators after everything is complete
+                    setTimeout(() => {
+                        indicators.classList.remove('hidden');
+                    }, 100);
+                    
+                }, CONSTANTS.COLLAPSE_DURATION / 2);
+            }, 50);
         }
 
         document.addEventListener('DOMContentLoaded', renderVault);
