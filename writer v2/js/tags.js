@@ -981,14 +981,20 @@ export function requestNFCPermission() {
  * @returns {Promise<boolean>} - True if access granted, false otherwise
  */
 export async function accessTag(tagData, token) {
-  debugLog(`Attempting to access tag with token`, 'info');
+  debugLog(`Attempting to access tag with token: ${token.substring(0, 3)}...${token.substring(token.length - 3)}`, 'info');
+  debugLog(`Tag data structure: ${JSON.stringify(tagData).substring(0, 100)}...`, 'info');
   
   try {
     // Check if this is the compact format
     if (tagData.v && tagData.d) {
+      debugLog(`Detected compact format (v${tagData.v})`, 'info');
       try {
         // Try to decrypt with provided token
+        debugLog(`Calling decryptTagData...`, 'info');
         const decryptedData = await decryptTagData(tagData, token);
+        
+        debugLog(`Decryption successful, checking tokens...`, 'info');
+        debugLog(`Owner token in decrypted data: ${decryptedData.owner.token.substring(0, 3)}...${decryptedData.owner.token.substring(decryptedData.owner.token.length - 3)}`, 'info');
         
         // Verify the token matches
         if (decryptedData.owner.token === token) {
@@ -1013,6 +1019,8 @@ export async function accessTag(tagData, token) {
         
         // If we get here, token doesn't match
         debugLog("Invalid token - Access denied", 'error');
+        debugLog(`Provided token: ${token.substring(0, 3)}...${token.substring(token.length - 3)}`, 'error');
+        debugLog(`Owner token: ${decryptedData.owner.token.substring(0, 3)}...${decryptedData.owner.token.substring(decryptedData.owner.token.length - 3)}`, 'error');
         showStatus("Invalid token - Access denied", true);
         return false;
       } catch (error) {
@@ -1260,4 +1268,27 @@ export function initTagsModule() {
   }
   
   debugLog('Tags module initialized', 'info');
+}
+
+function displayRawTagData(message) {
+  if (!message || !message.records) return;
+  
+  try {
+    for (const record of message.records) {
+      if (record.recordType === "text") {
+        const textDecoder = new TextDecoder();
+        const text = textDecoder.decode(record.data);
+        debugLog(`Raw tag text data: ${text.substring(0, 100)}...`, 'info');
+        
+        try {
+          const jsonData = JSON.parse(text);
+          debugLog(`Parsed JSON: ${JSON.stringify(jsonData).substring(0, 100)}...`, 'info');
+        } catch (e) {
+          debugLog(`Not valid JSON: ${e}`, 'warning');
+        }
+      }
+    }
+  } catch (error) {
+    debugLog(`Error reading raw tag data: ${error}`, 'error');
+  }
 }
