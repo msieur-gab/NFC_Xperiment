@@ -1,58 +1,55 @@
-// tab-manager.js
+// tab-manager.js - Tab navigation management
+import eventBus from './event-bus.js';
+
 class TabManager {
-    constructor(eventBus) {
-        this.eventBus = eventBus;
-        this.tabs = document.querySelectorAll('.tab');
-        this.tabContents = document.querySelectorAll('.tab-content');
-        
-        this.setupTabListeners();
+    constructor() {
+        this.currentTab = 'basic';
     }
-
-    setupTabListeners() {
-        this.tabs.forEach(tab => {
-            tab.addEventListener('click', () => this.activateTab(tab));
+    
+    init() {
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach(tab => {
+            tab.addEventListener('click', () => {
+                this.switchTab(tab.getAttribute('data-tab'));
+            });
         });
+        
+        // Initialize with first tab
+        this.switchTab('basic');
+        
+        eventBus.publish('log', { message: 'Tab navigation initialized', type: 'info' });
     }
-
-    /**
-     * Activate a specific tab
-     * @param {HTMLElement} tab - The tab to activate
-     */
-    activateTab(tab) {
-        // Remove active class from all tabs
-        this.tabs.forEach(t => t.classList.remove('active'));
+    
+    switchTab(tabName) {
+        const tabs = document.querySelectorAll('.tab');
+        tabs.forEach(t => t.classList.remove('active'));
         
-        // Add active class to clicked tab
-        tab.classList.add('active');
+        const selectedTab = document.querySelector(`.tab[data-tab="${tabName}"]`);
+        if (selectedTab) {
+            selectedTab.classList.add('active');
+        }
         
-        // Hide all tab contents
-        this.tabContents.forEach(content => content.classList.remove('active'));
+        // Hide all content sections
+        const tabContents = document.querySelectorAll('.tab-content');
+        tabContents.forEach(content => content.classList.remove('active'));
         
-        // Show the corresponding tab content
-        const tabName = tab.getAttribute('data-tab');
+        // Show selected content
         const tabContent = document.getElementById(`${tabName}-tab`);
-        
         if (tabContent) {
             tabContent.classList.add('active');
         }
-
-        // Emit event for potential additional logic
-        this.eventBus.emit('tab:changed', tabName);
-    }
-
-    /**
-     * Switch to a specific tab by name
-     * @param {string} tabName - Name of the tab to switch to
-     */
-    switchToTab(tabName) {
-        const tab = Array.from(this.tabs).find(
-            t => t.getAttribute('data-tab') === tabName
-        );
         
-        if (tab) {
-            this.activateTab(tab);
-        }
+        this.currentTab = tabName;
+        
+        // Publish tab change event
+        eventBus.publish('tabChanged', { tab: tabName });
+    }
+    
+    getCurrentTab() {
+        return this.currentTab;
     }
 }
 
-export default TabManager;
+// Create and export a singleton instance
+const tabManager = new TabManager();
+export default tabManager;

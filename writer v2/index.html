@@ -37,6 +37,7 @@
     
     <div class="tabs">
         <div class="tab active" data-tab="basic">Basic Mode</div>
+        <div class="tab" data-tab="contacts">Contacts Manager</div>
         <div class="tab" data-tab="advanced">Advanced Settings</div>
     </div>
     
@@ -54,8 +55,8 @@
                 <p class="help-text">This is the token you received when this tag was created.</p>
             </div>
             
-            <button onclick="app.switchToCreateNewTagUI()">Access Tag</button>
-            <button class="secondary" onclick="app.switchToCreateNewTagUI()">Create New Tag Instead</button>
+            <button id="accessButton">Access Tag</button>
+            <button class="secondary" id="create-new-instead-btn">Create New Tag Instead</button>
         </div>
     </div>
     
@@ -68,7 +69,7 @@
                 <label for="ownerToken">Owner Token:</label>
                 <div style="display:flex;">
                     <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner">
-                    <button onclick="generateOwnerToken()" style="margin-left:8px;">Generate</button>
+                    <button id="generate-token-btn" style="margin-left:8px;">Generate</button>
                 </div>
                 <p class="help-text">This token will be required to manage the tag later. Save it carefully!</p>
             </div>
@@ -76,16 +77,93 @@
             <div class="form-group">
                 <h3>Readers</h3>
                 <div id="readersList" class="reader-list"></div>
-                <button onclick="addReader()">Add Reader</button>
+                <button id="add-reader-btn">Add Reader</button>
+                <button class="secondary" id="load-saved-readers-btn">Load Saved Readers</button>
             </div>
             
             <button id="write-tag-button">Write to NFC Tag</button>
-            <button class="secondary" onclick="showTagPreview()">Show Preview</button>
+            <button class="secondary" id="show-preview-btn">Show Preview</button>
         </div>
         
         <div id="tagPreview" class="card" style="display: none;">
             <h3>Tag Preview</h3>
             <div id="preview-content"></div>
+        </div>
+    </div>
+    
+    <!-- Manage Tag Section (after successful access) -->
+    <div id="manage-tag-section" class="tag-access-section">
+        <div id="owner-controls">
+            <div class="card">
+                <h2>Tag Management (Owner)</h2>
+                <div class="info-box">
+                    <p>You have owner access to this tag. You can manage readers and update the tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Owner Information</h3>
+                    <p><strong>Owner ID:</strong> <span id="owner-id">owner</span></p>
+                    <p><strong>Owner Token:</strong> <span id="owner-token" class="token-display"></span></p>
+                    <p class="help-text">Keep this token secure - it provides full access to manage this tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Manage Readers</h3>
+                    <div id="manage-readers-list" class="reader-list"></div>
+                    <button id="add-reader-button">Add Reader</button>
+                </div>
+                
+                <div class="form-group">
+                    <button id="save-changes-button">Save Changes to Tag</button>
+                    <button class="secondary" id="scan-another-tag-button">Scan Another Tag</button>
+                    <button class="warning" id="create-new-tag-button">Create New Tag</button>
+                </div>
+                
+                <!-- Status display for tag operations -->
+                <div id="tag-operation-status" class="operation-status"></div>
+            </div>
+        </div>
+        
+        <div id="reader-controls">
+            <div class="card">
+                <h2>Tag Access (Reader)</h2>
+                <div class="info-box">
+                    <p>You have reader-level access to this tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Your Reader Information</h3>
+                    <p><strong>Reader ID:</strong> <span id="reader-id"></span></p>
+                    <p><strong>Reader Token:</strong> <span id="reader-token" class="token-display"></span></p>
+                    <p class="help-text">Keep this token secure - it provides your access to this tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <button class="secondary" id="reader-scan-another-tag-button">Scan Another Tag</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Contacts Manager Tab -->
+    <div id="contacts-tab" class="tab-content">
+        <div class="card">
+            <h2>Manage Contacts</h2>
+            
+            <div class="form-group">
+                <label for="contactOwnerToken">Your Owner Token:</label>
+                <input type="text" id="contactOwnerToken" placeholder="Enter your owner token to unlock contacts">
+                <button id="unlock-contacts-btn" style="margin-top: 8px;">Unlock Contacts</button>
+            </div>
+            
+            <div id="contacts-container" style="display: none;">
+                <div class="form-group">
+                    <h3>Reader Contacts</h3>
+                    <div id="contactsList" class="reader-list"></div>
+                    <button id="add-contact-btn">Add Contact</button>
+                    <button class="secondary" id="save-contacts-btn">Save Contacts</button>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -111,8 +189,8 @@
                 </select>
             </div>
             
-            <button onclick="app.saveSettings()">Save Settings</button>
-            <button class="secondary" onclick="app.resetSettings()">Reset to Defaults</button>
+            <button id="save-settings-btn">Save Settings</button>
+            <button class="secondary" id="reset-settings-btn">Reset to Defaults</button>
         </div>
     </div>
     
@@ -125,17 +203,7 @@
         </div>
     </div>
     
-    <!-- External Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
-    
-    <!-- Main Application Module -->
-    <script type="module">
-        import NFCApp from './app.js';
-        
-        // Make app globally accessible for inline event handlers
-        window.app = new NFCApp();
-        window.app.init();
-    </script>
+    <!-- Module Import Scripts -->
+    <script type="module" src="./js/app.js"></script>
 </body>
 </html>

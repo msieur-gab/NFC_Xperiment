@@ -1,56 +1,33 @@
-// event-bus.js
+// event-bus.js - Central event communication system
 class EventBus {
     constructor() {
-        this._listeners = {};
+        this.events = {};
     }
 
-    /**
-     * Register an event listener
-     * @param {string} event - Event name
-     * @param {Function} callback - Callback function
-     */
-    on(event, callback) {
-        if (!this._listeners[event]) {
-            this._listeners[event] = [];
+    subscribe(event, callback) {
+        if (!this.events[event]) {
+            this.events[event] = [];
         }
-        this._listeners[event].push(callback);
+        this.events[event].push(callback);
+        
+        // Return unsubscribe function
+        return () => {
+            this.events[event] = this.events[event].filter(
+                eventCallback => eventCallback !== callback
+            );
+        };
     }
 
-    /**
-     * Emit an event
-     * @param {string} event - Event name
-     * @param {*} data - Event data
-     */
-    emit(event, data) {
-        const listeners = this._listeners[event] || [];
-        listeners.forEach(listener => {
-            try {
-                listener(data);
-            } catch (error) {
-                console.error(`Error in event listener for ${event}:`, error);
-            }
-        });
-    }
-
-    /**
-     * Remove a specific listener or all listeners for an event
-     * @param {string} event - Event name
-     * @param {Function} [callback] - Optional specific callback to remove
-     */
-    off(event, callback) {
-        if (!callback) {
-            // Remove all listeners for this event
-            delete this._listeners[event];
+    publish(event, data) {
+        if (!this.events[event]) {
             return;
         }
-
-        // Remove specific listener
-        if (this._listeners[event]) {
-            this._listeners[event] = this._listeners[event].filter(
-                listener => listener !== callback
-            );
-        }
+        this.events[event].forEach(callback => {
+            callback(data);
+        });
     }
 }
 
-export default EventBus;
+// Create and export a singleton instance
+const eventBus = new EventBus();
+export default eventBus;
