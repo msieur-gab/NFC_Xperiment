@@ -649,6 +649,56 @@ document.head.insertAdjacentHTML('beforeend', `
 </style>
 `);
 
+// Add CSS for memory information display
+document.head.insertAdjacentHTML('beforeend', `
+<style>
+.memory-info {
+    margin: 15px 0;
+    padding: 12px;
+    background-color: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+}
+
+.memory-info h4 {
+    margin-top: 0;
+    margin-bottom: 10px;
+    color: #334155;
+}
+
+.memory-bar {
+    height: 12px;
+    background-color: #e2e8f0;
+    border-radius: 6px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.memory-used {
+    height: 100%;
+    background-color: #3b82f6;
+    border-radius: 6px;
+    transition: width 0.3s ease;
+}
+
+.memory-details p {
+    margin: 5px 0;
+    font-size: 0.9rem;
+    color: #475569;
+}
+
+.memory-warning {
+    color: #ef4444;
+    font-weight: 500;
+    display: none;
+}
+
+.memory-warning.visible {
+    display: block;
+}
+</style>
+`);
+
 // Create the owner record with encryption
 function createOwnerRecord(ownerToken) {
     // Create owner data - this entire object will be encrypted
@@ -831,6 +881,9 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
     
     // Set writing flag to prevent multiple operations
     isWriting = true;
+    
+    // Display memory information
+    displayTagMemoryInfo(message);
     
     // Extensive pre-write checks
     let hasAnyData = message.records && message.records.length > 0;
@@ -1081,27 +1134,11 @@ async function handleTagInReadMode(message, serialNumber) {
     // Hide scanning animation
     document.getElementById('scanning-animation').style.display = 'none';
     
-    // Check for any active sections before processing
-    const activeSections = document.querySelectorAll('.tag-access-section[style*="display: block"]');
-    if (activeSections.length === 0) {
-        debugLog("No active UI section found before processing tag", 'warning');
-    }
+    // Display memory information
+    displayTagMemoryInfo(message);
     
-    // Process the message
+    // Process the tag data
     await processNFCTag(message);
-    
-    // Verify that some UI is visible after processing
-    const visibleSections = document.querySelectorAll('.tag-access-section[style*="display: block"]');
-    if (visibleSections.length === 0) {
-        debugLog("ERROR: No UI section visible after processing tag!", 'error');
-        // Force show create UI as fallback
-        switchToCreateNewTagUI();
-    } else {
-        debugLog(`UI section visible after processing: ${visibleSections[0].id}`, 'info');
-    }
-    
-    // Reset state
-    nfcOperationState.mode = 'IDLE';
 }
 
 // Modified processNFCTag to handle encrypted records
@@ -1199,7 +1236,7 @@ async function processNFCTag(message) {
                         }
                     } else {
                         debugLog(`Unknown record type: ${recordData.type}`, 'warning');
-                        }
+                    }
                     } catch (jsonError) {
                         debugLog(`Failed to parse JSON: ${jsonError}`, 'warning');
                 }
@@ -1748,6 +1785,133 @@ async function loadSavedReaders() {
     } catch (error) {
         debugLog(`Error loading saved readers: ${error}`, 'error');
         showStatus('Failed to load saved readers', true);
+    }
+}
+
+// Function to estimate tag memory capacity and usage
+function estimateTagMemory(message) {
+    // Common NFC tag types and their typical capacities (in bytes)
+    const tagTypes = {
+        'TYPE1': 96,      // Type 1 tags (Topaz)
+        'TYPE2': 144,     // Type 2 tags (MIFARE Ultralight)
+        'TYPE3': 4096,    // Type 3 tags (FeliCa)
+        'TYPE4': 32768,   // Type 4 tags (MIFARE DESFire)
+        'TYPE5': 512,     // Type 5 tags (ISO 15693)
+        'MIFARE_CLASSIC': 716, // MIFARE Classic 1K
+        'NTAG213': 144,   // NTAG213
+        'NTAG215': 504,   // NTAG215
+        'NTAG216': 888    // NTAG216
+    };
+    
+    // Default to a conservative estimate if we can't determine the type
+    let estimatedCapacity = 144; // Default to NTAG213 size
+    let tagTypeGuess = 'Unknown';
+    
+    // Try to determine tag type from serial number or other properties
+    if (message.serialNumber) {
+        const serialHex = message.serialNumber.toLowerCase();
+        
+        // NTAG detection based on serial number patterns
+        if (serialHex.startsWith('04')) {
+            if (serialHex.length === 14) {
+                tagTypeGuess = 'NTAG21x';
+                estimatedCapacity = 504; // Assume NTAG215 as middle ground
+            }
+        }
+    }
+    
+    // Calculate current usage
+    let currentUsage = 0;
+    if (message.records) {
+        for (const record of message.records) {
+            try {
+                // Calculate size of this record
+                // NDEF overhead: ~6-8 bytes per record
+                const recordOverhead = 8;
+                
+                // Data size
+                let dataSize = 0;
+                if (record.data) {
+                    if (record.data instanceof ArrayBuffer) {
+                        dataSize = record.data.byteLength;
+                    } else {
+                        // Try to estimate size for other data types
+                        const blob = new Blob([record.data]);
+                        dataSize = blob.size;
+                    }
+                }
+                
+                // Add type length if present
+                let typeSize = 0;
+                if (record.recordType) {
+                    typeSize = record.recordType.length;
+                }
+                
+                // Total for this record
+                const recordSize = recordOverhead + dataSize + typeSize;
+                currentUsage += recordSize;
+                
+            } catch (e) {
+                debugLog(`Error calculating record size: ${e}`, 'warning');
+            }
+        }
+    }
+    
+    // Add NDEF message overhead (approximately 10-16 bytes)
+    currentUsage += 16;
+    
+    // Calculate remaining space
+    const remainingSpace = Math.max(0, estimatedCapacity - currentUsage);
+    const usagePercentage = Math.min(100, Math.round((currentUsage / estimatedCapacity) * 100));
+    
+    return {
+        tagType: tagTypeGuess,
+        estimatedCapacity,
+        currentUsage,
+        remainingSpace,
+        usagePercentage
+    };
+}
+
+// Display memory information in the UI
+function displayTagMemoryInfo(message) {
+    const memoryInfo = estimateTagMemory(message);
+    
+    // Create or update memory info display
+    const memoryInfoHTML = `
+        <div class="memory-info">
+            <h4>Tag Memory Information</h4>
+            <div class="memory-bar">
+                <div class="memory-used" style="width: ${memoryInfo.usagePercentage}%"></div>
+            </div>
+            <div class="memory-details">
+                <p>Estimated tag type: ${memoryInfo.tagType}</p>
+                <p>Used: ${memoryInfo.currentUsage} bytes (${memoryInfo.usagePercentage}%)</p>
+                <p>Remaining: ${memoryInfo.remainingSpace} bytes</p>
+                <p>Estimated capacity: ${memoryInfo.estimatedCapacity} bytes</p>
+                <p class="memory-warning ${memoryInfo.usagePercentage > 80 ? 'visible' : ''}">
+                    ⚠️ Tag memory is getting full. Consider using a larger tag.
+                </p>
+            </div>
+        </div>
+    `;
+    
+    // Add to UI
+    const statusElement = document.getElementById('tag-memory-info');
+    if (statusElement) {
+        statusElement.innerHTML = memoryInfoHTML;
+    } else {
+        // Create element if it doesn't exist
+        const memoryElement = document.createElement('div');
+        memoryElement.id = 'tag-memory-info';
+        memoryElement.innerHTML = memoryInfoHTML;
+        
+        // Find a good place to insert it
+        const targetElement = document.getElementById('tag-operation-status') || 
+                             document.getElementById('status-message');
+        if (targetElement) {
+            targetElement.parentNode.insertBefore(memoryElement, targetElement.nextSibling);
+        }
     }
 }
 
