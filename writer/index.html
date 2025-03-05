@@ -81,15 +81,6 @@
                 <button class="secondary" onclick="loadSavedReaders()">Load Saved Readers</button>
             </div>
             
-            <div id="pin-container" class="form-group">
-                <label for="ownerPIN">Owner PIN:</label>
-                <div class="input-with-button">
-                    <input type="text" id="ownerPIN" placeholder="PIN for quick access">
-                    <button type="button" onclick="generateOwnerPIN()">Generate</button>
-                </div>
-                <p class="help-text">This PIN can be used instead of the token for quicker access</p>
-            </div>
-            
             <button id="write-tag-button">Write to NFC Tag</button>
             <button class="secondary" onclick="showTagPreview()">Show Preview</button>
         </div>
@@ -196,24 +187,6 @@
                     <option value="16">16 characters</option>
                     <option value="24">24 characters</option>
                 </select>
-            </div>
-            
-            <div class="setting-group">
-                <label for="usePIN">
-                    <input type="checkbox" id="usePIN" checked>
-                    Enable PIN access
-                </label>
-                <p class="setting-description">Allow tag access using a simple PIN code</p>
-            </div>
-
-            <div class="setting-group">
-                <label for="pinLength">PIN Length:</label>
-                <select id="pinLength">
-                    <option value="4">4 digits</option>
-                    <option value="6">6 digits</option>
-                    <option value="8">8 digits</option>
-                </select>
-                <p class="setting-description">Length of generated PINs</p>
             </div>
             
             <button onclick="saveSettings()">Save Settings</button>
