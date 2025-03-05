@@ -6,8 +6,7 @@
     <title>NFC Multi-User Tag App</title>
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <!-- Remove LocalForage if not needed elsewhere -->
-    <!-- <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script> -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
     <!-- Custom Styles and Scripts -->
     <link rel="stylesheet" href="style.css">
 </head>
@@ -38,7 +37,7 @@
     
     <div class="tabs">
         <div class="tab active" data-tab="basic">Basic Mode</div>
-        <!-- Remove Contacts Manager tab -->
+        <div class="tab" data-tab="contacts">Contacts Manager</div>
         <div class="tab" data-tab="advanced">Advanced Settings</div>
     </div>
     
@@ -79,7 +78,7 @@
                 <h3>Readers</h3>
                 <div id="readersList" class="reader-list"></div>
                 <button onclick="addReader()">Add Reader</button>
-                <!-- Remove the Load Saved Readers button -->
+                <button class="secondary" onclick="loadSavedReaders()">Load Saved Readers</button>
             </div>
             
             <button id="write-tag-button">Write to NFC Tag</button>
@@ -146,7 +145,27 @@
         </div>
     </div>
     
-    <!-- Remove Contacts Manager Tab -->
+    <!-- Contacts Manager Tab -->
+    <div id="contacts-tab" class="tab-content">
+        <div class="card">
+            <h2>Manage Contacts</h2>
+            
+            <div class="form-group">
+                <label for="contactOwnerToken">Your Owner Token:</label>
+                <input type="text" id="contactOwnerToken" placeholder="Enter your owner token to unlock contacts">
+                <button onclick="unlockContacts()" style="margin-top: 8px;">Unlock Contacts</button>
+            </div>
+            
+            <div id="contacts-container" style="display: none;">
+                <div class="form-group">
+                    <h3>Reader Contacts</h3>
+                    <div id="contactsList" class="reader-list"></div>
+                    <button onclick="addContact()">Add Contact</button>
+                    <button class="secondary" onclick="saveContacts()">Save Contacts</button>
+                </div>
+            </div>
+        </div>
+    </div>
     
     <!-- Advanced Settings Tab -->
     <div id="advanced-tab" class="tab-content">
