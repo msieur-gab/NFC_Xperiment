@@ -1310,6 +1310,7 @@ function switchToCreateNewTagUI() {
     // Set up write button - Use write mode
     document.getElementById('write-tag-button').onclick = () => {
         debugLog("Write tag button clicked", 'info');
+        isWriting = true;
         startNFCOperation('WRITING');
     };
 }
