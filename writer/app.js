@@ -218,8 +218,16 @@ async function handleNFCTag(isWriteMode = false) {
         return;
     }
 
-    showStatus(isWriteMode ? "Tap tag to write..." : "Waiting for NFC tag...");
+    // Show clear instructions based on mode
     document.getElementById('scanning-animation').style.display = 'block';
+    
+    if (isWriteMode) {
+        document.querySelector('#scanning-animation p').textContent = 'Please bring the NFC tag to the back of your phone to write...';
+        showStatus("Ready to write to tag. Place tag against your device.");
+    } else {
+        document.querySelector('#scanning-animation p').textContent = 'Waiting for NFC tag...';
+        showStatus("Waiting for NFC tag. Place tag against your device.");
+    }
     
     try {
         const ndef = new NDEFReader();
@@ -234,12 +242,42 @@ async function handleNFCTag(isWriteMode = false) {
             ndef.addEventListener("reading", async ({ message, serialNumber }) => {
                 console.log(`Tag detected in write mode. Serial: ${serialNumber}`);
                 
-                // Check if the tag already has data
-                const hasExistingData = await checkTagHasData(message);
+                // Check if the tag has our format or completely different data
+                let isOurFormat = false;
+                let hasAnyData = false;
                 
-                if (hasExistingData) {
-                    // Ask for confirmation before overwriting
-                    const confirmOverwrite = confirm("This tag already contains data. Do you want to overwrite it?");
+                if (message.records && message.records.length > 0) {
+                    hasAnyData = true;
+                    
+                    // Check if it matches our format
+                    for (const record of message.records) {
+                        if (record.recordType === "text") {
+                            try {
+                                const textDecoder = new TextDecoder();
+                                const text = textDecoder.decode(record.data);
+                                try {
+                                    const data = JSON.parse(text);
+                                    if (data.type === "encrypted_nfc_multi_user") {
+                                        isOurFormat = true;
+                                        break;
+                                    }
+                                } catch (jsonError) {
+                                    // Not JSON data, continue checking
+                                }
+                            } catch (e) {
+                                // Decoding error, continue checking
+                            }
+                        }
+                    }
+                }
+                
+                // Handle confirmation differently based on tag content
+                if (hasAnyData) {
+                    let confirmMessage = isOurFormat ? 
+                        "This tag already contains encrypted data from this app. Do you want to overwrite it?" :
+                        "This tag contains data in an unknown format. Overwriting will erase all existing data on the tag. Continue?";
+                    
+                    const confirmOverwrite = confirm(confirmMessage);
                     if (!confirmOverwrite) {
                         document.getElementById('scanning-animation').style.display = 'none';
                         showStatus("Writing cancelled - existing data preserved", true);
@@ -303,6 +341,7 @@ async function processNFCTag(message) {
     let tagData = null;
     let hasURLRecord = false;
     let urlTarget = '';
+    let isOurFormat = false;
     
     // Log all records for debugging
     console.log(`Found ${message.records.length} records on tag`);
@@ -320,6 +359,11 @@ async function processNFCTag(message) {
                 try {
                     tagData = JSON.parse(text);
                     console.log("Successfully parsed JSON data from tag");
+                    
+                    // Check if it's our format
+                    if (tagData && tagData.type === "encrypted_nfc_multi_user") {
+                        isOurFormat = true;
+                    }
                 } catch (jsonError) {
                     console.error("Failed to parse JSON:", jsonError);
                 }
@@ -335,7 +379,7 @@ async function processNFCTag(message) {
     }
     
     // CASE 1: Tag has our encrypted format
-    if (tagData && tagData.type === "encrypted_nfc_multi_user") {
+    if (isOurFormat) {
         console.log("Recognized our encrypted format");
         showStatus("Encrypted tag detected");
         
@@ -350,7 +394,7 @@ async function processNFCTag(message) {
         showStatus("Found tag with existing data", true);
         
         // Show confirmation dialog with more information
-        if (confirm("This tag contains data in a format that is not recognized by this app. Would you like to overwrite it? (This will erase any existing data on the tag)")) {
+        if (confirm("This tag contains data in a format not recognized by this app. Would you like to create a new tag? (This will erase existing data when you write to the tag)")) {
             switchToCreateNewTagUI();
         }
         return;
@@ -628,8 +672,10 @@ async function saveTagChanges() {
     const tagData = JSON.parse(manageSection.dataset.tagData);
     const ownerToken = manageSection.dataset.accessToken;
     
-    // Show scanning animation
+    // Show scanning animation and clear instructions
     document.getElementById('scanning-animation').style.display = 'block';
+    document.querySelector('#scanning-animation p').textContent = 'Please bring the NFC tag to the back of your phone...';
+    showStatus('Ready to write changes. Please place the tag against your device.', false);
     
     try {
         // Encrypt the updated data
@@ -652,8 +698,44 @@ async function saveTagChanges() {
         const ndef = new NDEFReader();
         await ndef.scan();
         
-        ndef.addEventListener("reading", async () => {
+        ndef.addEventListener("reading", async ({ message, serialNumber }) => {
             try {
+                // Check if this is one of our tags or completely different format
+                let isOurFormat = false;
+                
+                // Check if the tag already has our format
+                if (message.records && message.records.length > 0) {
+                    for (const record of message.records) {
+                        if (record.recordType === "text") {
+                            try {
+                                const textDecoder = new TextDecoder();
+                                const text = textDecoder.decode(record.data);
+                                try {
+                                    const data = JSON.parse(text);
+                                    if (data.type === "encrypted_nfc_multi_user") {
+                                        isOurFormat = true;
+                                        break;
+                                    }
+                                } catch (jsonError) {
+                                    // Not JSON data, continue checking
+                                }
+                            } catch (e) {
+                                // Decoding error, continue checking
+                            }
+                        }
+                    }
+                }
+                
+                // If not our format, confirm overwrite
+                if (!isOurFormat && message.records && message.records.length > 0) {
+                    const confirmOverwrite = confirm("This tag contains data in an unknown format. Do you want to overwrite it? This will erase all existing data on the tag.");
+                    if (!confirmOverwrite) {
+                        document.getElementById('scanning-animation').style.display = 'none';
+                        showStatus("Writing cancelled - existing data preserved", true);
+                        return;
+                    }
+                }
+                
                 await ndef.write({
                     records: [
                         {
@@ -909,4 +991,3 @@ function initApp() {
 
 // Call initApp when the page loads
 window.addEventListener('load', initApp);
-    

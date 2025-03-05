@@ -142,26 +142,29 @@ button.danger:hover, button.danger:focus {
     font-weight: 500;
 }
 
-.status {
+.status, .error {
     background-color: #f0fdf4;
     border-left: 4px solid var(--success);
-    padding: 10px 15px;
+    padding: 12px 15px;
     margin-bottom: 15px;
     border-radius: 4px;
+    font-size: 1rem;
+    font-weight: 500;
 }
 
 .error {
     background-color: #fef2f2;
     border-left: 4px solid var(--danger);
-    padding: 10px 15px;
-    margin-bottom: 15px;
-    border-radius: 4px;
 }
 
 .scanning-animation {
     text-align: center;
     padding: 30px;
     display: none;
+    background-color: rgba(37, 99, 235, 0.05);
+    border-radius: 8px;
+    border: 1px solid rgba(37, 99, 235, 0.2);
+    margin: 20px 0;
 }
 
 .pulse {
@@ -172,6 +175,22 @@ button.danger:hover, button.danger:focus {
     margin: 0 auto 20px;
     position: relative;
     animation: pulse 2s infinite;
+}
+
+.scanning-animation p {
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--primary);
+    margin-bottom: 10px;
+}
+
+.scan-instructions {
+    background-color: #eff6ff;
+    padding: 10px;
+    border-radius: 4px;
+    font-weight: 500;
+    margin-top: 10px;
+    color: var(--primary);
 }
 
 @keyframes pulse {
@@ -228,4 +247,24 @@ button.danger:hover, button.danger:focus {
 /* Tag modes */
 .tag-access-section {
     display: none;
+}
+
+/* Mode indicators */
+.read-mode, .write-mode {
+    display: inline-block;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 0.8rem;
+    font-weight: 500;
+    margin-left: 8px;
+}
+
+.read-mode {
+    background-color: #eff6ff;
+    color: var(--primary);
+}
+
+.write-mode {
+    background-color: #f0fdf4;
+    color: var(--success);
 }
