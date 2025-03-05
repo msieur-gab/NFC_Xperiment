@@ -647,8 +647,8 @@ function createReaderRecord(reader, ownerToken) {
         recordType: "text",
         data: JSON.stringify({
             type: "encrypted_reader",
-            id: reader.id, // Keep ID in clear text for identification
-            data: encryptedData
+            id: reader.id, // Only ID is in clear text for identification
+            data: encryptedData // The token is encrypted inside this data
         })
     };
 }
