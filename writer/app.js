@@ -605,6 +605,50 @@ document.head.insertAdjacentHTML('beforeend', `
 </style>
 `);
 
+// Add CSS for warning notification
+document.head.insertAdjacentHTML('beforeend', `
+<style>
+.warning-notification {
+    display: flex;
+    background-color: #fffbeb;
+    border: 1px solid #f59e0b;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 15px 0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.warning-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background-color: #f59e0b;
+    border-radius: 50%;
+    color: white;
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.warning-message {
+    flex: 1;
+}
+
+.warning-message h3 {
+    margin: 0 0 5px 0;
+    color: #d97706;
+}
+
+.warning-message p {
+    margin: 0 0 10px 0;
+    color: #374151;
+}
+</style>
+`);
+
 // Create the owner record with encryption
 function createOwnerRecord(ownerToken) {
     // Create owner data - this entire object will be encrypted
@@ -657,7 +701,7 @@ function createReaderRecord(reader, ownerToken) {
     };
 }
 
-// Write tag data with multiple records
+// Enhanced writeTagData with better error handling
 async function writeTagData(ndef) {
     const ownerToken = document.getElementById('ownerToken').value;
 
@@ -687,14 +731,20 @@ async function writeTagData(ndef) {
     // Log payload details for debugging
     debugLog('Preparing to write NFC tag', 'info');
     debugLog(`Total records: ${records.length}`, 'info');
-    records.forEach((record, index) => {
-        try {
-            const recordSize = new Blob([record.data]).size;
-            debugLog(`Record ${index + 1}: Type ${record.recordType}, Size ${recordSize} bytes`, 'info');
-        } catch (sizeError) {
-            debugLog(`Could not calculate record ${index + 1} size`, 'warning');
-        }
-    });
+    
+    // Save data to local storage as backup before writing
+    try {
+        await localforage.setItem('last_write_attempt', {
+            timestamp: Date.now(),
+            ownerToken: ownerToken,
+            readers: readers,
+            recordCount: records.length
+        });
+        debugLog('Saved write data to local backup', 'info');
+    } catch (backupError) {
+        debugLog(`Warning: Could not save backup: ${backupError}`, 'warning');
+        // Continue anyway - this is just a precaution
+    }
 
     try {
         // Attempt to write all records
@@ -705,14 +755,74 @@ async function writeTagData(ndef) {
         const writeEndTime = Date.now();
         debugLog(`Tag write completed in ${writeEndTime - writeStartTime}ms`, 'success');
         
+        // Clear the backup after successful write
+        await localforage.removeItem('last_write_attempt');
+        
         return true;
     } catch (error) {
         debugLog(`Comprehensive write error: ${error}`, 'error');
         
         // Enhanced error feedback
-        showStatus(`❌ Error writing to tag: ${error.message || error}`, true);
+        showStatus(`❌ Error writing to tag: ${error.message || error}. Your data is saved locally.`, true);
         throw error;
     }
+}
+
+// Add a recovery function to the UI
+function checkForRecoveryData() {
+    localforage.getItem('last_write_attempt').then(lastAttempt => {
+        if (lastAttempt && lastAttempt.ownerToken && lastAttempt.readers) {
+            const timeSince = Math.floor((Date.now() - lastAttempt.timestamp) / 60000); // minutes
+            
+            debugLog(`Found recovery data from ${timeSince} minutes ago`, 'info');
+            
+            // Show recovery option in UI
+            const statusElement = document.getElementById('status-message');
+            statusElement.innerHTML += `
+                <div class="warning-notification">
+                    <div class="warning-icon">⚠️</div>
+                    <div class="warning-message">
+                        <h3>Recover Previous Write Attempt</h3>
+                        <p>Found data from a previous write attempt (${timeSince} minutes ago) that may not have completed.</p>
+                        <p>Owner token and ${lastAttempt.readers.length} readers can be recovered.</p>
+                        <button onclick="recoverLastWriteAttempt()">Recover Data</button>
+                        <button class="secondary" onclick="dismissRecovery()">Dismiss</button>
+                    </div>
+                </div>
+            `;
+        }
+    }).catch(err => {
+        debugLog(`Error checking for recovery data: ${err}`, 'error');
+    });
+}
+
+// Function to recover last write attempt
+function recoverLastWriteAttempt() {
+    localforage.getItem('last_write_attempt').then(lastAttempt => {
+        if (lastAttempt && lastAttempt.ownerToken && lastAttempt.readers) {
+            // Restore the data
+            document.getElementById('ownerToken').value = lastAttempt.ownerToken;
+            readers = lastAttempt.readers;
+            updateReadersList();
+            
+            debugLog(`Recovered ${readers.length} readers from previous attempt`, 'success');
+            showStatus('Previous write data recovered successfully');
+            
+            // Don't remove the backup yet - keep until successful write
+        }
+    }).catch(err => {
+        debugLog(`Error recovering data: ${err}`, 'error');
+        showStatus('Could not recover previous data', true);
+    });
+}
+
+// Function to dismiss recovery notification
+function dismissRecovery() {
+    // Just remove the notification, but keep the data in case user changes mind
+    const warningElements = document.querySelectorAll('.warning-notification');
+    warningElements.forEach(el => el.remove());
+    
+    debugLog('Recovery notification dismissed', 'info');
 }
 
 // Handle tag in write mode (new tag)
@@ -1652,6 +1762,9 @@ function initApp() {
     
     // Initialize settings
     initSettings();
+    
+    // Check for recovery data from previous failed writes
+    checkForRecoveryData();
     
     // Check for URL parameters
     const urlParams = new URLSearchParams(window.location.search);
