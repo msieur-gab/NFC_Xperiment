@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Multi-User Tag App</title>
+    <!-- External Libraries -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js"></script>
+    <!-- Custom Styles and Scripts -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>NFC Multi-User Tag App</h1>
+    
+    <div id="status-message"></div>
+    
+    <!-- Debug Panel (hidden by default) -->
+    <div id="debug-panel" class="debug-panel">
+        <div class="debug-header">
+            <h3>Debug Console</h3>
+            <div class="debug-controls">
+                <button id="clear-debug" class="small">Clear</button>
+                <button id="close-debug" class="small">Hide</button>
+            </div>
+        </div>
+        <div id="debug-console" class="debug-console"></div>
+    </div>
+    
+    <!-- Debug Mode Toggle -->
+    <div class="debug-toggle">
+        <label for="debug-mode-toggle">
+            <input type="checkbox" id="debug-mode-toggle">
+            <span>Debug Mode</span>
+        </label>
+    </div>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="basic">Basic Mode</div>
+        <div class="tab" data-tab="contacts">Contacts Manager</div>
+        <div class="tab" data-tab="advanced">Advanced Settings</div>
+    </div>
+    
+    <!-- Token Entry Section (for existing tags) -->
+    <div id="token-entry-section" class="tag-access-section">
+        <div class="card">
+            <h2>Access NFC Tag</h2>
+            <div class="info-box">
+                <p>This NFC tag contains protected data. Please enter your token to access it.</p>
+            </div>
+            
+            <div class="form-group">
+                <label for="accessToken">Your Access Token:</label>
+                <input type="text" id="accessToken" placeholder="Enter your owner or reader token">
+                <p class="help-text">This is the token you received when this tag was created.</p>
+            </div>
+            
+            <button id="accessButton">Access Tag</button>
+            <button class="secondary" onclick="switchToCreateNewTagUI()">Create New Tag Instead</button>
+        </div>
+    </div>
+    
+    <!-- Create Tag Section (for new/empty tags) -->
+    <div id="create-tag-section" class="tag-access-section">
+        <div class="card">
+            <h2>Create New NFC Tag</h2>
+            
+            <div class="form-group">
+                <label for="ownerToken">Owner Token:</label>
+                <div style="display:flex;">
+                    <input type="text" id="ownerToken" placeholder="Enter a unique token for the owner">
+                    <button onclick="generateOwnerToken()" style="margin-left:8px;">Generate</button>
+                </div>
+                <p class="help-text">This token will be required to manage the tag later. Save it carefully!</p>
+            </div>
+            
+            <div class="form-group">
+                <h3>Readers</h3>
+                <div id="readersList" class="reader-list"></div>
+                <button onclick="addReader()">Add Reader</button>
+                <button class="secondary" onclick="loadSavedReaders()">Load Saved Readers</button>
+            </div>
+            
+            <button id="write-tag-button">Write to NFC Tag</button>
+            <button class="secondary" onclick="showTagPreview()">Show Preview</button>
+        </div>
+        
+        <div id="tagPreview" class="card" style="display: none;">
+            <h3>Tag Preview</h3>
+            <div id="preview-content"></div>
+        </div>
+    </div>
+    
+    <!-- Manage Tag Section (after successful access) -->
+    <div id="manage-tag-section" class="tag-access-section">
+        <div id="owner-controls">
+            <div class="card">
+                <h2>Tag Management (Owner)</h2>
+                <div class="info-box">
+                    <p>You have owner access to this tag. You can manage readers and update the tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Owner Information</h3>
+                    <p><strong>Owner ID:</strong> <span id="owner-id">owner</span></p>
+                    <p><strong>Owner Token:</strong> <span id="owner-token" class="token-display"></span></p>
+                    <p class="help-text">Keep this token secure - it provides full access to manage this tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Manage Readers</h3>
+                    <div id="manage-readers-list" class="reader-list"></div>
+                    <button id="add-reader-button">Add Reader</button>
+                </div>
+                
+                <div class="form-group">
+                    <button id="save-changes-button">Save Changes to Tag</button>
+                    <button class="secondary" onclick="startNFCOperation('READING')">Scan Another Tag</button>
+                    <button class="warning" onclick="switchToCreateNewTagUI()">Create New Tag</button>
+                </div>
+                
+                <!-- Status display for tag operations -->
+                <div id="tag-operation-status" class="operation-status"></div>
+            </div>
+        </div>
+        
+        <div id="reader-controls">
+            <div class="card">
+                <h2>Tag Access (Reader)</h2>
+                <div class="info-box">
+                    <p>You have reader-level access to this tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Your Reader Information</h3>
+                    <p><strong>Reader ID:</strong> <span id="reader-id"></span></p>
+                    <p><strong>Reader Token:</strong> <span id="reader-token" class="token-display"></span></p>
+                    <p class="help-text">Keep this token secure - it provides your access to this tag.</p>
+                </div>
+                
+                <div class="form-group">
+                    <button class="secondary" onclick="startNFCOperation('READING')">Scan Another Tag</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Contacts Manager Tab -->
+    <div id="contacts-tab" class="tab-content">
+        <div class="card">
+            <h2>Manage Contacts</h2>
+            
+            <div class="form-group">
+                <label for="contactOwnerToken">Your Owner Token:</label>
+                <input type="text" id="contactOwnerToken" placeholder="Enter your owner token to unlock contacts">
+                <button onclick="unlockContacts()" style="margin-top: 8px;">Unlock Contacts</button>
+            </div>
+            
+            <div id="contacts-container" style="display: none;">
+                <div class="form-group">
+                    <h3>Reader Contacts</h3>
+                    <div id="contactsList" class="reader-list"></div>
+                    <button onclick="addContact()">Add Contact</button>
+                    <button class="secondary" onclick="saveContacts()">Save Contacts</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Advanced Settings Tab -->
+    <div id="advanced-tab" class="tab-content">
+        <div class="card">
+            <h2>Advanced Settings</h2>
+            
+            <div class="form-group">
+                <label for="tokenFormat">Token Format:</label>
+                <select id="tokenFormat">
+                    <option value="readable">Human Readable (ABCD-1234-XYZ9)</option>
+                    <option value="hex">Hexadecimal (a1b2c3d4e5f6...)</option>
+                </select>
+            </div>
+            
+            <div class="form-group">
+                <label for="tokenLength">Token Length:</label>
+                <select id="tokenLength">
+                    <option value="12">12 characters</option>
+                    <option value="16">16 characters</option>
+                    <option value="24">24 characters</option>
+                </select>
+            </div>
+            
+            <button onclick="saveSettings()">Save Settings</button>
+            <button class="secondary" onclick="resetSettings()">Reset to Defaults</button>
+        </div>
+    </div>
+    
+    <!-- Scanning Animation -->
+    <div id="scanning-animation" class="scanning-animation">
+        <div class="pulse"></div>
+        <p>Tap your NFC tag...</p>
+        <div class="scan-instructions">
+            Bring the NFC tag to the back of your device
+        </div>
+    </div>
+    
+    <!-- Custom Script -->
+    <script src="main.js"></script>
+</body>
+</html>
