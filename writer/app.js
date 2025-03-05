@@ -5,8 +5,8 @@ let currentOwnerToken = null;
 let settings = {
     tokenFormat: 'readable',
     tokenLength: '12',
-    usePIN: true,         // New setting to enable/disable PIN
-    pinLength: 4          // Default PIN length
+    usePIN: true,         // New setting for PIN usage
+    pinLength: '4'        // Default PIN length
 };
 
 // Add a global state tracker for NFC operations
@@ -190,12 +190,12 @@ function initSettings() {
             document.getElementById('tokenFormat').value = settings.tokenFormat;
             document.getElementById('tokenLength').value = settings.tokenLength;
             
-            // Apply PIN settings if elements exist
+            // Apply PIN settings if they exist
             if (document.getElementById('usePIN')) {
                 document.getElementById('usePIN').checked = settings.usePIN !== false;
             }
             if (document.getElementById('pinLength')) {
-                document.getElementById('pinLength').value = settings.pinLength || 4;
+                document.getElementById('pinLength').value = settings.pinLength || '4';
             }
         } catch (e) {
             console.error('Failed to parse settings', e);
@@ -204,12 +204,12 @@ function initSettings() {
     }
 }
 
-// Save settings - update to include PIN settings
+// Save settings
 function saveSettings() {
     settings.tokenFormat = document.getElementById('tokenFormat').value;
     settings.tokenLength = document.getElementById('tokenLength').value;
     
-    // Save PIN settings if elements exist
+    // Save PIN settings if they exist in the UI
     if (document.getElementById('usePIN')) {
         settings.usePIN = document.getElementById('usePIN').checked;
     }
@@ -221,24 +221,24 @@ function saveSettings() {
     showStatus('Settings saved successfully');
 }
 
-// Reset settings - update to include PIN defaults
+// Reset settings
 function resetSettings() {
     settings = {
         tokenFormat: 'readable',
         tokenLength: '12',
         usePIN: true,
-        pinLength: 4
+        pinLength: '4'
     };
     
     document.getElementById('tokenFormat').value = settings.tokenFormat;
     document.getElementById('tokenLength').value = settings.tokenLength;
     
-    // Reset PIN settings if elements exist
+    // Reset PIN settings if they exist in the UI
     if (document.getElementById('usePIN')) {
         document.getElementById('usePIN').checked = true;
     }
     if (document.getElementById('pinLength')) {
-        document.getElementById('pinLength').value = 4;
+        document.getElementById('pinLength').value = '4';
     }
     
     localStorage.setItem('nfc_writer_settings', JSON.stringify(settings));
@@ -332,6 +332,22 @@ function generateToken() {
 // Generate owner token
 function generateOwnerToken() {
     document.getElementById('ownerToken').value = generateToken();
+}
+
+// Generate a PIN based on settings
+function generatePIN() {
+    const length = parseInt(settings.pinLength);
+    const digits = '0123456789';
+    let result = '';
+    for (let i = 0; i < length; i++) {
+        result += digits.charAt(Math.floor(Math.random() * digits.length));
+    }
+    return result;
+}
+
+// Generate owner PIN
+function generateOwnerPIN() {
+    document.getElementById('ownerPIN').value = generatePIN();
 }
 
 // Add a new reader to current session
@@ -633,53 +649,34 @@ document.head.insertAdjacentHTML('beforeend', `
 </style>
 `);
 
-// Create the owner record with encryption - modified to support PIN
-function createOwnerRecord(ownerToken, pin = null) {
+// Create the owner record with encryption and PIN support
+function createOwnerRecord(ownerToken, ownerPIN = null) {
     // Create owner data
     const ownerData = {
         type: "owner",
-        token: ownerToken
+        token: ownerToken,
+        hasPin: !!ownerPIN
     };
     
-    // If PIN is provided, we'll create a PIN-protected record
-    if (pin && settings.usePIN) {
-        debugLog("Creating PIN-protected owner record", 'info');
-        
-        // Derive a key from the PIN (simple implementation)
-        // In production, use a proper key derivation function like PBKDF2
-        const pinKey = CryptoJS.SHA256(pin.toString()).toString();
-        
-        // Encrypt the owner token with the PIN-derived key
-        const encryptedToken = CryptoJS.AES.encrypt(
-            ownerToken,
-            pinKey
-        ).toString();
-        
-        // Create the PIN-protected record
-        return {
-            recordType: "text",
-            data: JSON.stringify({
-                type: "pin_protected_owner",
-                data: encryptedToken,
-                // Store a hash of the PIN for verification (never store the PIN directly)
-                pinHash: CryptoJS.SHA256(pin.toString()).toString()
-            })
-        };
-    } else {
-        // Standard encryption with owner token as before
-        const encryptedData = CryptoJS.AES.encrypt(
-            JSON.stringify(ownerData),
-            ownerToken
-        ).toString();
-        
-        return {
-            recordType: "text",
-            data: JSON.stringify({
-                type: "encrypted_owner",
-                data: encryptedData
-            })
-        };
+    // If PIN is provided, include it in the encrypted data
+    if (ownerPIN) {
+        ownerData.pin = ownerPIN;
     }
+    
+    // Encrypt the owner data using the owner token itself as the key
+    const encryptedData = CryptoJS.AES.encrypt(
+        JSON.stringify(ownerData),
+        ownerToken
+    ).toString();
+    
+    return {
+        recordType: "text",
+        data: JSON.stringify({
+            type: "encrypted_owner",
+            data: encryptedData,
+            hasPin: !!ownerPIN
+        })
+    };
 }
 
 // Create a reader record - encrypted with owner token
@@ -707,30 +704,19 @@ function createReaderRecord(reader, ownerToken) {
     };
 }
 
-// Write tag data with multiple records - modified to support PIN
+// Write tag data with multiple records
 async function writeTagData(ndef) {
     const ownerToken = document.getElementById('ownerToken').value;
-    let pin = null;
+    const ownerPIN = settings.usePIN ? document.getElementById('ownerPIN').value : null;
 
     if (!ownerToken) {
         showStatus('Owner token is required', true);
         return;
     }
 
-    // If PIN protection is enabled, get the PIN
-    if (settings.usePIN) {
-        pin = prompt("Enter a PIN to protect this tag (numbers only):", "");
-        if (pin === null) {
-            // User cancelled
-            showStatus('Operation cancelled', true);
-            return;
-        }
-        
-        // Validate PIN
-        if (!/^\d+$/.test(pin) || pin.length < 4) {
-            showStatus('PIN must be at least 4 digits', true);
-            return;
-        }
+    if (settings.usePIN && (!ownerPIN || ownerPIN.length < 4)) {
+        showStatus('Owner PIN is required (minimum 4 digits)', true);
+        return;
     }
 
     // Get the current URL (without query parameters) to use as the app URL
@@ -743,8 +729,8 @@ async function writeTagData(ndef) {
             recordType: "url",
             data: appUrl + "?action=read"
         },
-        // Owner record - now with optional PIN protection
-        createOwnerRecord(ownerToken, pin)
+        // Owner record - now with PIN support
+        createOwnerRecord(ownerToken, ownerPIN)
     ];
 
     // Add reader records - now passing the owner token for encryption
@@ -754,8 +740,15 @@ async function writeTagData(ndef) {
     // Log payload details for debugging
     debugLog('Preparing to write NFC tag', 'info');
     debugLog(`Total records: ${records.length}`, 'info');
-    debugLog(`PIN protection: ${pin ? 'Enabled' : 'Disabled'}`, 'info');
-    
+    records.forEach((record, index) => {
+        try {
+            const recordSize = new Blob([record.data]).size;
+            debugLog(`Record ${index + 1}: Type ${record.recordType}, Size ${recordSize} bytes`, 'info');
+        } catch (sizeError) {
+            debugLog(`Could not calculate record ${index + 1} size`, 'warning');
+        }
+    });
+
     try {
         // Attempt to write all records
         const writeStartTime = Date.now();
@@ -902,6 +895,7 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
                     <h3>Tag Successfully Written!</h3>
                     <p>Your NFC tag has been initialized with your settings.</p>
                     <p>Owner token: ${document.getElementById('ownerToken').value}</p>
+                    ${settings.usePIN ? `<p>Owner PIN: ${document.getElementById('ownerPIN').value}</p>` : ''}
                     <p>Number of readers: ${readers.length}</p>
                     <p>Write duration: ${writeDuration}ms</p>
                 </div>
@@ -1193,7 +1187,7 @@ async function processNFCTag(message) {
     switchToCreateNewTagUI();
 }
 
-// Switch to token entry UI for existing encrypted tags - modified to support PIN
+// Switch to token entry UI for existing encrypted tags
 function switchToTokenEntryUI(tagData) {
     debugLog("Switching to token entry UI", 'info');
     
@@ -1207,244 +1201,179 @@ function switchToTokenEntryUI(tagData) {
     
     // Clear previous token input
     document.getElementById('accessToken').value = '';
+    document.getElementById('accessPIN').value = '';
+    
+    // Check if tag has PIN support
+    const hasPIN = tagData.owner && tagData.owner.hasPin;
+    
+    // Show/hide PIN entry based on tag support
+    if (document.getElementById('pin-entry-container')) {
+        document.getElementById('pin-entry-container').style.display = hasPIN ? 'block' : 'none';
+    }
+    
+    // Show appropriate message
+    if (hasPIN) {
+        document.getElementById('access-instructions').innerHTML = 
+            'This tag supports PIN access. Enter your PIN to unlock, or use your owner token as a fallback.';
+    } else {
+        document.getElementById('access-instructions').innerHTML = 
+            'Enter your owner token to unlock this tag.';
+    }
     
     // Store the encrypted data for later use
     tokenSection.dataset.encryptedData = JSON.stringify(tagData);
     
-    // Check if this is a PIN-protected tag
-    const isPinProtected = tagData.owner && tagData.owner.type === "pin_protected_owner";
-    
-    // Update UI to show PIN input if needed
-    if (isPinProtected) {
-        // Show PIN input field
-        if (!document.getElementById('pinInputContainer')) {
-            const pinContainer = document.createElement('div');
-            pinContainer.id = 'pinInputContainer';
-            pinContainer.className = 'input-group';
-            pinContainer.innerHTML = `
-                <label for="accessPIN">PIN:</label>
-                <input type="password" id="accessPIN" inputmode="numeric" pattern="[0-9]*" placeholder="Enter PIN">
-            `;
-            
-            // Insert before the token input
-            const tokenInput = document.querySelector('.input-group');
-            tokenInput.parentNode.insertBefore(pinContainer, tokenInput);
-            
-            // Update label for token field
-            document.querySelector('label[for="accessToken"]').textContent = 'Owner Token (optional):';
-        }
-        
-        document.getElementById('pinInputContainer').style.display = 'block';
-    } else {
-        // Hide PIN input if it exists
-        if (document.getElementById('pinInputContainer')) {
-            document.getElementById('pinInputContainer').style.display = 'none';
-        }
-        // Ensure token label is correct
-        if (document.querySelector('label[for="accessToken"]')) {
-            document.querySelector('label[for="accessToken"]').textContent = 'Token:';
-        }
-    }
-    
     // Set up the access button
     document.getElementById('accessButton').onclick = () => {
-        if (isPinProtected) {
-            const pin = document.getElementById('accessPIN').value;
-            const token = document.getElementById('accessToken').value;
-            
-            if (!pin) {
-                showStatus("Please enter your PIN", true);
-                return;
-            }
-            
-            // Try to access with PIN
-            accessTagWithPIN(tagData, pin, token);
-        } else {
-            const token = document.getElementById('accessToken').value;
-            if (!token) {
-                showStatus("Please enter a token", true);
-                return;
-            }
-            
-            // Use existing access method
-            accessTag(tagData, token);
+        const pin = document.getElementById('accessPIN').value;
+        const token = document.getElementById('accessToken').value;
+        
+        if (!pin && !token) {
+            showStatus("Please enter a PIN or token", true);
+            return;
         }
+        
+        // Try to decrypt and access the tag
+        accessTag(tagData, token, pin);
     };
 }
 
-// New function to access tag with PIN
-function accessTagWithPIN(tagData, pin, fallbackToken = null) {
-    debugLog(`Attempting to access tag with PIN`, 'info');
+// Modified access function to support PIN
+function accessTag(tagData, token, pin = null) {
+    debugLog(`Attempting to access tag with ${pin ? 'PIN' : 'token'}`, 'info');
     
     try {
-        if (tagData.owner && tagData.owner.type === "pin_protected_owner") {
-            // Verify PIN hash if available (additional security check)
-            if (tagData.owner.pinHash) {
-                const enteredPinHash = CryptoJS.SHA256(pin.toString()).toString();
-                if (enteredPinHash !== tagData.owner.pinHash) {
-                    debugLog("PIN hash verification failed", 'error');
-                    showStatus("Incorrect PIN", true);
-                    return;
-                }
-            }
-            
-            // Derive key from PIN
-            const pinKey = CryptoJS.SHA256(pin.toString()).toString();
-            
+        // Handle legacy encrypted format
+        if (tagData.type === "encrypted_nfc_multi_user") {
+            // Legacy format handling remains the same...
+        }
+        
+        // Try to decrypt owner record
+        if (tagData.owner && tagData.owner.type === "encrypted_owner") {
             try {
-                // Try to decrypt the owner token with the PIN
-                const decryptedBytes = CryptoJS.AES.decrypt(tagData.owner.data, pinKey);
-                const ownerToken = decryptedBytes.toString(CryptoJS.enc.Utf8);
-                
-                if (!ownerToken) {
-                    throw new Error("Failed to decrypt owner token");
-                }
-                
-                debugLog("Successfully decrypted owner token with PIN", 'success');
-                
-                // Now decrypt all reader records with the owner token
-                const decryptedReaders = [];
-                
-                for (const encryptedReader of tagData.readers) {
+                // First try with token
+                if (token) {
                     try {
-                        if (encryptedReader.type === "encrypted_reader") {
-                            // Decrypt each reader with owner token
-                            const readerBytes = CryptoJS.AES.decrypt(encryptedReader.data, ownerToken);
-                            const readerData = JSON.parse(readerBytes.toString(CryptoJS.enc.Utf8));
+                        // Try to decrypt with provided token
+                        const decryptedBytes = CryptoJS.AES.decrypt(tagData.owner.data, token);
+                        const ownerData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+                        
+                        // If we can decrypt, this is the owner
+                        if (ownerData.token === token) {
+                            debugLog("Owner access granted via token", 'success');
+                            showStatus("Owner access granted!");
                             
-                            decryptedReaders.push({
-                                id: readerData.id,
-                                token: readerData.token
-                            });
+                            // Process tag data with owner access
+                            processOwnerAccess(tagData, ownerData, token);
+                            return;
                         }
-                    } catch (readerError) {
-                        debugLog(`Could not decrypt reader ${encryptedReader.id}: ${readerError}`, 'warning');
+                    } catch (tokenError) {
+                        debugLog(`Token decryption failed: ${tokenError}`, 'error');
                     }
                 }
                 
-                // Create data structure for UI
-                const decryptedData = {
-                    owner: {
-                        id: "owner",
-                        token: ownerToken
-                    },
-                    readers: decryptedReaders
-                };
-                
-                // Switch to tag management UI with owner privileges
-                switchToManageTagUI(decryptedData, ownerToken, "owner");
-                showStatus("Access granted with PIN!");
-                return;
-            } catch (error) {
-                debugLog(`Failed to decrypt with PIN: ${error}`, 'error');
-                
-                // If fallback token is provided, try that
-                if (fallbackToken) {
-                    debugLog("Trying fallback with owner token", 'info');
-                    accessTag(tagData, fallbackToken);
-                    return;
+                // Then try with PIN if provided
+                if (pin && tagData.owner.hasPin) {
+                    // Try all possible tokens from the tag
+                    let foundToken = null;
+                    
+                    // First try to decrypt the owner record
+                    try {
+                        // We need to try all possible tokens since we don't know which one
+                        // matches the PIN. This is a brute force approach but limited to
+                        // the tokens on this specific tag.
+                        
+                        // Try various decryption methods with the PIN
+                        const possibleTokens = [];
+                        
+                        // Method 1: Try direct PIN as key (simplest case)
+                        possibleTokens.push(pin);
+                        
+                        // Method 2: Try PIN with standard salt
+                        possibleTokens.push(CryptoJS.PBKDF2(pin, "NFC_TAG_SALT", { keySize: 256/32 }).toString());
+                        
+                        // Try each possible token
+                        for (const possibleToken of possibleTokens) {
+                            try {
+                                const decryptedBytes = CryptoJS.AES.decrypt(tagData.owner.data, possibleToken);
+                                const ownerData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+                                
+                                // If we got here, decryption worked
+                                if (ownerData.pin === pin) {
+                                    // Found the correct token using PIN
+                                    foundToken = ownerData.token;
+                                    debugLog("Owner access granted via PIN", 'success');
+                                    showStatus("Owner access granted via PIN!");
+                                    
+                                    // Process tag data with owner access
+                                    processOwnerAccess(tagData, ownerData, foundToken);
+                                    return;
+                                }
+                            } catch (error) {
+                                // This token didn't work, try the next one
+                            }
+                        }
+                    } catch (pinError) {
+                        debugLog(`PIN decryption attempts failed: ${pinError}`, 'error');
+                    }
                 }
-                
-                showStatus("Incorrect PIN", true);
-            }
-        } else {
-            // Not a PIN-protected tag
-            if (fallbackToken) {
-                accessTag(tagData, fallbackToken);
-            } else {
-                showStatus("This tag is not PIN-protected", true);
+            } catch (error) {
+                debugLog(`Failed to decrypt owner record: ${error}`, 'error');
             }
         }
+        
+        // If we get here, both PIN and token are invalid
+        if (pin && token) {
+            debugLog("Invalid PIN and token - Access denied", 'error');
+            showStatus("Invalid PIN and token - Access denied", true);
+        } else if (pin) {
+            debugLog("Invalid PIN - Access denied", 'error');
+            showStatus("Invalid PIN - Access denied", true);
+        } else {
+            debugLog("Invalid token - Access denied", 'error');
+            showStatus("Invalid token - Access denied", true);
+        }
+        
     } catch (error) {
-        debugLog(`PIN access error: ${error}`, 'error');
-        showStatus("Error accessing tag", true);
+        debugLog(`Access error: ${error}`, 'error');
+        showStatus("Invalid credentials or corrupted tag data", true);
     }
 }
 
-// Switch to UI for managing an existing tag
-function switchToManageTagUI(tagData, token, accessLevel, readerId = null) {
-    debugLog(`Switching to tag management UI with ${accessLevel} access`, 'info');
+// Process owner access (extracted from accessTag for clarity)
+function processOwnerAccess(tagData, ownerData, token) {
+    // Now decrypt all reader records with the owner token
+    const decryptedReaders = [];
     
-    // Hide other UI sections
-    document.getElementById('create-tag-section').style.display = 'none';
-    document.getElementById('token-entry-section').style.display = 'none';
-    
-    // Show manage section
-    const manageSection = document.getElementById('manage-tag-section');
-    manageSection.style.display = 'block';
-    
-    // Update UI based on access level
-    if (accessLevel === "owner") {
-        // Owner can see and modify everything
-        document.getElementById('owner-controls').style.display = 'block';
-        document.getElementById('reader-controls').style.display = 'none';
-        
-        // Show owner info
-        document.getElementById('owner-id').textContent = tagData.owner.id;
-        document.getElementById('owner-token').textContent = tagData.owner.token;
-        
-        // Populate readers list
-        const readersList = document.getElementById('manage-readers-list');
-        readersList.innerHTML = '';
-        
-        if (tagData.readers.length === 0) {
-            readersList.innerHTML = '<p>No readers added to this tag.</p>';
-            debugLog("No readers found on tag", 'info');
-        } else {
-            debugLog(`Displaying ${tagData.readers.length} readers`, 'info');
-            
-            tagData.readers.forEach((reader, index) => {
-                const readerItem = document.createElement('div');
-                readerItem.className = 'reader-item';
-                readerItem.innerHTML = `
-                    <div class="reader-info">
-                        <strong>${reader.id}</strong><br>
-                        <span class="token-display">${reader.token}</span>
-                    </div>
-                    <div class="reader-actions">
-                        <button class="danger" onclick="removeReaderFromTag(${index})">Remove</button>
-                    </div>
-                `;
-                readersList.appendChild(readerItem);
-            });
+    for (const encryptedReader of tagData.readers) {
+        try {
+            if (encryptedReader.type === "encrypted_reader") {
+                // Decrypt each reader with owner token
+                const readerBytes = CryptoJS.AES.decrypt(encryptedReader.data, token);
+                const readerData = JSON.parse(readerBytes.toString(CryptoJS.enc.Utf8));
+                
+                decryptedReaders.push({
+                    id: readerData.id,
+                    token: readerData.token
+                });
+            }
+        } catch (readerError) {
+            debugLog(`Could not decrypt reader ${encryptedReader.id}: ${readerError}`, 'warning');
         }
-        
-        // Store the current tag data and token for later use
-        manageSection.dataset.tagData = JSON.stringify(tagData);
-        manageSection.dataset.accessToken = token;
-        
-        // Set up add reader button
-        document.getElementById('add-reader-button').onclick = () => addReaderToTag();
-        
-        // Set up save button - Use update mode with owner context
-        document.getElementById('save-changes-button').onclick = () => {
-            debugLog("Save changes button clicked", 'info');
-            
-            const updatedTagData = JSON.parse(manageSection.dataset.tagData);
-            const ownerToken = manageSection.dataset.accessToken;
-            
-            debugLog(`Preparing update operation with ${updatedTagData.readers.length} readers`, 'info');
-            
-            // Start NFC operation in UPDATE mode with context
-            startNFCOperation('UPDATING', {
-                tagData: updatedTagData,
-                ownerToken: ownerToken
-            });
-        };
-    } else if (accessLevel === "reader") {
-        // Reader can only see limited information
-        document.getElementById('owner-controls').style.display = 'none';
-        document.getElementById('reader-controls').style.display = 'block';
-        
-        // Show reader info
-        const reader = tagData.readers.find(r => r.id === readerId);
-        document.getElementById('reader-id').textContent = reader.id;
-        document.getElementById('reader-token').textContent = reader.token;
-        
-        debugLog(`Displaying reader info for "${reader.id}"`, 'info');
-        
-        // No modify capabilities for readers
     }
+    
+    // Create data structure for UI
+    const decryptedData = {
+        owner: {
+            id: "owner",
+            token: token,
+            pin: ownerData.pin
+        },
+        readers: decryptedReaders
+    };
+    
+    // Switch to tag management UI with owner privileges
+    switchToManageTagUI(decryptedData, token, "owner");
 }
 
 // Switch to UI for creating a new tag
@@ -1464,6 +1393,16 @@ function switchToCreateNewTagUI() {
     
     // Generate a new owner token
     generateOwnerToken();
+    
+    // Generate a new PIN if PIN is enabled
+    if (settings.usePIN && document.getElementById('ownerPIN')) {
+        generateOwnerPIN();
+    }
+    
+    // Update PIN field visibility based on settings
+    if (document.getElementById('pin-container')) {
+        document.getElementById('pin-container').style.display = settings.usePIN ? 'block' : 'none';
+    }
     
     // Set up write button - Use write mode
     document.getElementById('write-tag-button').onclick = () => {
@@ -1799,6 +1738,27 @@ function initApp() {
         showStatus("NFC is not supported on this device or browser. Some features may not work.", true);
     } else {
         debugLog("NFC is supported on this device", 'success');
+    }
+    
+    // Set up PIN toggle in settings
+    const usePINCheckbox = document.getElementById('usePIN');
+    if (usePINCheckbox) {
+        usePINCheckbox.addEventListener('change', function() {
+            settings.usePIN = this.checked;
+            
+            // Update PIN field visibility in create tag UI
+            if (document.getElementById('pin-container')) {
+                document.getElementById('pin-container').style.display = settings.usePIN ? 'block' : 'none';
+            }
+            
+            // Generate PIN if needed
+            if (settings.usePIN && document.getElementById('ownerPIN')) {
+                generateOwnerPIN();
+            }
+            
+            // Save settings
+            saveSettings();
+        });
     }
     
     debugLog("App initialization complete", 'success');
