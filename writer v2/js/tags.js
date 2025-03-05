@@ -5,7 +5,7 @@
 
 import { AppState } from './state.js';
 import { debugLog } from './debug.js';
-import { encryptTagData, decryptTagData, decryptLegacyData } from './crypto.js';
+import { encryptTagData, decryptTagData, decryptLegacyData, testEncryptDecrypt } from './crypto.js';
 import { 
   showStatus, 
   displayTagMemoryInfo, 
@@ -470,21 +470,95 @@ async function handleTagInUpdateMode(ndef, message, serialNumber) {
 }
 
 /**
- * Handle tag in read mode
+ * Handle a tag in read mode
  * @param {NDEFMessage} message - The NFC message
  * @param {string} serialNumber - The tag serial number
  */
 async function handleTagInReadMode(message, serialNumber) {
-  debugLog(`Handling tag in READ mode. Serial: ${serialNumber}`, 'info');
-  
-  // Hide scanning animation
+  debugLog(`Tag detected in READ mode. Serial: ${serialNumber}`, 'info');
   hideScanningAnimation();
   
-  // Display memory information
+  // Display raw tag data for debugging
+  displayRawTagData(message);
+  
+  // Display memory info
   displayTagMemoryInfo(message);
   
   // Process the tag data
-  await processNFCTag(message);
+  let tagData = null;
+  let isEncrypted = false;
+  
+  try {
+    // Look for text record with JSON data
+    for (const record of message.records) {
+      if (record.recordType === "text") {
+        const textDecoder = new TextDecoder();
+        const text = textDecoder.decode(record.data);
+        
+        try {
+          const jsonData = JSON.parse(text);
+          debugLog(`Found JSON data in tag: ${JSON.stringify(jsonData).substring(0, 100)}...`, 'info');
+          
+          // Check if this is our encrypted format
+          if (jsonData.v && jsonData.d) {
+            tagData = jsonData;
+            isEncrypted = true;
+            debugLog(`Detected encrypted tag format v${jsonData.v}`, 'info');
+            break;
+          }
+          // Check for legacy format
+          else if (jsonData.type === "encrypted_nfc_multi_user") {
+            tagData = jsonData;
+            isEncrypted = true;
+            debugLog(`Detected legacy encrypted tag format`, 'info');
+            break;
+          }
+          // Check for multi-record format
+          else if (jsonData.owner && (jsonData.owner.type === "encrypted_owner" || jsonData.owner.type === "unencrypted_owner")) {
+            tagData = jsonData;
+            isEncrypted = true;
+            debugLog(`Detected multi-record tag format`, 'info');
+            break;
+          }
+        } catch (e) {
+          debugLog(`Record contains non-JSON text: ${e}`, 'warning');
+        }
+      }
+    }
+    
+    if (tagData) {
+      if (isEncrypted) {
+        // Store the encrypted data for token entry
+        const tokenSection = document.getElementById('token-entry-section');
+        if (tokenSection) {
+          tokenSection.dataset.encryptedData = JSON.stringify(tagData);
+          debugLog(`Stored encrypted tag data for token entry`, 'info');
+        }
+        
+        // Switch to token entry UI
+        switchToTokenEntryUI();
+        showStatus("This tag contains encrypted data. Please enter your token.");
+      } else {
+        // Unencrypted tag - show data directly
+        debugLog(`Tag contains unencrypted data`, 'info');
+        showStatus("Tag contains unencrypted data");
+      }
+    } else {
+      // No recognized data format
+      debugLog(`No recognized data format found on tag`, 'warning');
+      showStatus("This tag doesn't contain recognized data. Would you like to create a new tag?", false);
+      
+      // Show option to create new tag
+      setTimeout(() => {
+        if (confirm("This tag doesn't contain recognized data. Would you like to create a new tag?")) {
+          switchToCreateNewTagUI();
+        }
+      }, 500);
+    }
+  } catch (error) {
+    debugLog(`Error processing tag data: ${error}`, 'error');
+    showStatus("Error reading tag data", true);
+  }
 }
 
 /**
@@ -1265,6 +1339,34 @@ export function initTagsModule() {
         }
       }
     });
+  }
+  
+  // Add test encryption button
+  const testEncryptBtn = document.createElement('button');
+  testEncryptBtn.textContent = 'Test Encryption';
+  testEncryptBtn.className = 'secondary';
+  testEncryptBtn.style.marginTop = '10px';
+  testEncryptBtn.onclick = async () => {
+    const ownerToken = document.getElementById('ownerToken').value;
+    if (!ownerToken) {
+      showStatus('Please enter an owner token to test', true);
+      return;
+    }
+    
+    debugLog(`Testing encryption with token: ${ownerToken.substring(0, 3)}...${ownerToken.substring(ownerToken.length-3)}`, 'info');
+    const result = await testEncryptDecrypt(ownerToken);
+    
+    if (result) {
+      showStatus('Encryption test passed! The token should work for both writing and reading.', false);
+    } else {
+      showStatus('Encryption test failed. There may be issues with token compatibility.', true);
+    }
+  };
+  
+  // Add to UI
+  const writeTagButton = document.getElementById('write-tag-button');
+  if (writeTagButton && writeTagButton.parentNode) {
+    writeTagButton.parentNode.appendChild(testEncryptBtn);
   }
   
   debugLog('Tags module initialized', 'info');
