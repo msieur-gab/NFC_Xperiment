@@ -233,7 +233,11 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
     }
     
     // Show scanning animation with appropriate instructions
-    document.getElementById('scanning-animation').style.display = 'block';
+    const scanningElement = document.getElementById('scanning-animation');
+    scanningElement.style.display = 'block';
+    
+    // Clear any previous writing class
+    scanningElement.classList.remove('writing');
     
     if (operation === 'WRITING') {
         document.querySelector('#scanning-animation p').textContent = 'Please bring the NFC tag to the back of your phone to write...';
@@ -325,9 +329,35 @@ async function handleTagInWriteMode(ndef, message) {
     }
     
     try {
+        // Show writing animation
+        const scanningElement = document.getElementById('scanning-animation');
+        scanningElement.classList.add('writing');
+        document.querySelector('#scanning-animation p').textContent = 'Writing tag...';
+        
         await writeTagData(ndef);
         document.getElementById('scanning-animation').style.display = 'none';
-        showStatus("✅ Tag successfully written!");
+        
+        // Show success notification
+        const statusElement = document.getElementById('status-message');
+        statusElement.innerHTML = `
+            <div class="success-notification">
+                <div class="success-icon">✓</div>
+                <div class="success-message">
+                    <h3>Tag Successfully Written!</h3>
+                    <p>Your NFC tag has been initialized with your settings.</p>
+                    <p>Owner token: ${document.getElementById('ownerToken').value}</p>
+                    <p>Number of readers: ${readers.length}</p>
+                </div>
+            </div>
+        `;
+        
+        // Make this message stay visible longer (10 seconds)
+        setTimeout(() => {
+            if (statusElement.querySelector('.success-notification')) {
+                statusElement.innerHTML = '';
+            }
+        }, 10000);
+        
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
         showStatus(`❌ Error writing to tag: ${error}`, true);
@@ -341,13 +371,18 @@ async function handleTagInWriteMode(ndef, message) {
 async function handleTagInUpdateMode(ndef, message) {
     try {
         // We already have the tag data and owner token in the state
-        // Create updated encrypted data with new readers
         const tagData = nfcOperationState.tagData;
         const ownerToken = nfcOperationState.ownerToken;
         
         if (!tagData || !ownerToken) {
             throw new Error("Missing tag data or owner token");
         }
+        
+        // Show writing status - more prominent
+        const scanningElement = document.getElementById('scanning-animation');
+        scanningElement.classList.add('writing');
+        document.querySelector('#scanning-animation p').textContent = 'Writing to tag...';
+        showStatus('<span class="write-mode">WRITING...</span> Updating tag with new readers');
         
         // Encrypt the updated data
         const encryptedPayload = CryptoJS.AES.encrypt(
@@ -365,6 +400,8 @@ async function handleTagInUpdateMode(ndef, message) {
         // Get the current URL (without query parameters) to use as the app URL
         const appUrl = window.location.origin + window.location.pathname;
         
+        console.log("About to write updated tag data with these readers:", tagData.readers);
+        
         // Write directly without further confirmation since we're in update mode
         await ndef.write({
             records: [
@@ -379,13 +416,49 @@ async function handleTagInUpdateMode(ndef, message) {
             ]
         });
         
-        // Update UI
+        // Update UI with a more persistent and visible success message
         document.getElementById('scanning-animation').style.display = 'none';
-        showStatus("✅ Tag successfully updated with new readers!");
+        
+        // Create a persistent success notification
+        const statusElement = document.getElementById('status-message');
+        statusElement.innerHTML = `
+            <div class="success-notification">
+                <div class="success-icon">✓</div>
+                <div class="success-message">
+                    <h3>Tag Updated Successfully!</h3>
+                    <p>Reader information has been saved to the tag.</p>
+                    <p>Total readers on tag: ${tagData.readers.length}</p>
+                </div>
+            </div>
+        `;
+        
+        // Make this message stay visible longer (10 seconds)
+        setTimeout(() => {
+            if (statusElement.querySelector('.success-notification')) {
+                statusElement.innerHTML = '';
+            }
+        }, 10000);
+        
+        // Also, let's add a permanent record in the UI
+        const manageSection = document.getElementById('manage-tag-section');
+        const lastUpdateInfo = document.createElement('div');
+        lastUpdateInfo.className = 'last-update-info';
+        lastUpdateInfo.innerHTML = `
+            <p>Tag last updated: ${new Date().toLocaleTimeString()}</p>
+        `;
+        
+        // Replace any existing update info or add new one
+        const existingInfo = manageSection.querySelector('.last-update-info');
+        if (existingInfo) {
+            existingInfo.replaceWith(lastUpdateInfo);
+        } else {
+            manageSection.appendChild(lastUpdateInfo);
+        }
         
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
-        showStatus(`❌ Error updating tag: ${error}`, true);
+        // More detailed error message
+        showStatus(`❌ Error updating tag: ${error.message || error}. Please try again.`, true);
         console.error("Update error:", error);
     }
     
