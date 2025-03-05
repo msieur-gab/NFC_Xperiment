@@ -420,6 +420,13 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
 
     // Update global state
     nfcOperationState.mode = operation;
+    
+    // Ensure writing flag is set when in WRITING mode
+    if (operation === 'WRITING') {
+        isWriting = true;
+        debugLog("Setting isWriting flag to true", 'info');
+    }
+    
     if (contextData) {
         if (contextData.tagData) nfcOperationState.tagData = contextData.tagData;
         if (contextData.ownerToken) nfcOperationState.ownerToken = contextData.ownerToken;
@@ -444,6 +451,7 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
     if (operation === 'WRITING') {
         document.querySelector('#scanning-animation p').textContent = 'Please bring the NFC tag to the back of your phone to write...';
         showStatus('<span class="write-mode">WRITE MODE</span> Place tag against your device');
+        debugLog("Write mode active, isWriting = " + isWriting, 'info');
     } else if (operation === 'UPDATING') {
         document.querySelector('#scanning-animation p').textContent = 'Ready to update tag with new readers...';
         showStatus('<span class="write-mode">UPDATE MODE</span> Place the same tag back against your device');
@@ -469,6 +477,11 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
         // Set up central NFC tag detection handler
         ndef.addEventListener("reading", async ({ message, serialNumber }) => {
             debugLog(`Tag detected in ${operation} mode. Serial: ${serialNumber}`, 'info');
+            
+            // Double check writing flag if in WRITING mode
+            if (operation === 'WRITING') {
+                debugLog("Tag detected for writing, isWriting = " + isWriting, 'info');
+            }
             
             // Handle the tag based on current operation state
             switch (nfcOperationState.mode) {
@@ -498,6 +511,7 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
         debugLog(`NFC initialization error: ${error}`, 'error');
         // Reset state on error
         nfcOperationState.mode = 'IDLE';
+        isWriting = false; // Reset writing flag on error
     }
 }
 
