@@ -20,6 +20,9 @@ let logHistory = []; // Store logs even when debug panel is hidden
 const MAX_LOG_HISTORY = 100; // Maximum number of log entries to keep
 let ndef = null; // Store the NFC reader instance globally for debug access
 
+// Flag to track if a write operation is in progress
+let isWriting = false;
+
 // Debug logging - always log to history, only update UI when visible
 function debugLog(message, type = 'info') {
     // Always add to log history
@@ -420,13 +423,6 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
 
     // Update global state
     nfcOperationState.mode = operation;
-    
-    // Ensure writing flag is set when in WRITING mode
-    if (operation === 'WRITING') {
-        isWriting = true;
-        debugLog("Setting isWriting flag to true", 'info');
-    }
-    
     if (contextData) {
         if (contextData.tagData) nfcOperationState.tagData = contextData.tagData;
         if (contextData.ownerToken) nfcOperationState.ownerToken = contextData.ownerToken;
@@ -451,7 +447,6 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
     if (operation === 'WRITING') {
         document.querySelector('#scanning-animation p').textContent = 'Please bring the NFC tag to the back of your phone to write...';
         showStatus('<span class="write-mode">WRITE MODE</span> Place tag against your device');
-        debugLog("Write mode active, isWriting = " + isWriting, 'info');
     } else if (operation === 'UPDATING') {
         document.querySelector('#scanning-animation p').textContent = 'Ready to update tag with new readers...';
         showStatus('<span class="write-mode">UPDATE MODE</span> Place the same tag back against your device');
@@ -477,11 +472,6 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
         // Set up central NFC tag detection handler
         ndef.addEventListener("reading", async ({ message, serialNumber }) => {
             debugLog(`Tag detected in ${operation} mode. Serial: ${serialNumber}`, 'info');
-            
-            // Double check writing flag if in WRITING mode
-            if (operation === 'WRITING') {
-                debugLog("Tag detected for writing, isWriting = " + isWriting, 'info');
-            }
             
             // Handle the tag based on current operation state
             switch (nfcOperationState.mode) {
@@ -511,7 +501,87 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
         debugLog(`NFC initialization error: ${error}`, 'error');
         // Reset state on error
         nfcOperationState.mode = 'IDLE';
-        isWriting = false; // Reset writing flag on error
+    }
+}
+
+// Utility function to create a record for a reader
+function createReaderRecord(reader) {
+    return {
+        recordType: "text",
+        data: JSON.stringify({
+            type: "reader",
+            id: reader.id,
+            token: reader.token
+        })
+    };
+}
+
+// Create the owner record
+function createOwnerRecord(ownerToken) {
+    return {
+        recordType: "text",
+        data: JSON.stringify({
+            type: "owner",
+            token: ownerToken
+        })
+    };
+}
+
+// Write tag data with multiple records
+async function writeTagData(ndef) {
+    const ownerToken = document.getElementById('ownerToken').value;
+
+    if (!ownerToken) {
+        showStatus('Owner token is required', true);
+        return;
+    }
+
+    // Get the current URL (without query parameters) to use as the app URL
+    const appUrl = window.location.origin + window.location.pathname;
+
+    // Prepare records
+    const records = [
+        // First record is always the URL
+        {
+            recordType: "url",
+            data: appUrl + "?action=read"
+        },
+        // Owner record
+        createOwnerRecord(ownerToken)
+    ];
+
+    // Add reader records
+    const readerRecords = readers.map(createReaderRecord);
+    records.push(...readerRecords);
+
+    // Log payload details for debugging
+    debugLog('Preparing to write NFC tag', 'info');
+    debugLog(`Total records: ${records.length}`, 'info');
+    records.forEach((record, index) => {
+        try {
+            const recordSize = new Blob([record.data]).size;
+            debugLog(`Record ${index + 1}: Type ${record.recordType}, Size ${recordSize} bytes`, 'info');
+        } catch (sizeError) {
+            debugLog(`Could not calculate record ${index + 1} size`, 'warning');
+        }
+    });
+
+    try {
+        // Attempt to write all records
+        const writeStartTime = Date.now();
+        
+        await ndef.write({ records });
+
+        const writeEndTime = Date.now();
+        debugLog(`Tag write completed in ${writeEndTime - writeStartTime}ms`, 'success');
+        
+        return true;
+    } catch (error) {
+        debugLog(`Comprehensive write error: ${error}`, 'error');
+        
+        // Enhanced error feedback
+        showStatus(`❌ Error writing to tag: ${error.message || error}`, true);
+        throw error;
     }
 }
 
@@ -519,11 +589,8 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
 async function handleTagInWriteMode(ndef, message, serialNumber) {
     debugLog(`Handling tag in WRITE mode. Serial: ${serialNumber}`, 'info');
     
-    // Check if a write is already in progress
-    if (!isWriting) {
-        debugLog('Write operation cancelled - writing flag not set', 'warning');
-        return;
-    }
+    // Set writing flag to prevent multiple operations
+    isWriting = true;
     
     // Extensive pre-write checks
     let hasAnyData = message.records && message.records.length > 0;
@@ -563,7 +630,7 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
                         const existingData = JSON.parse(text);
                         debugLog(`Existing record content type: ${existingData.type || 'Unknown'}`, 'info');
                         
-                        if (existingData.type === "encrypted_nfc_multi_user") {
+                        if (existingData.type === "owner") {
                             isOurFormat = true;
                             debugLog('Recognized existing tag format', 'info');
                         }
@@ -583,7 +650,7 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
     if (hasAnyData) {
         // Prepare confirmation message based on tag contents
         let confirmMessage = isOurFormat ? 
-            `This tag already contains encrypted data from this app (${existingTagDetails.recordCount} records). Overwrite?` :
+            `This tag already contains data from this app (${existingTagDetails.recordCount} records). Overwrite?` :
             `This tag contains ${existingTagDetails.recordCount} records in an unknown format. Overwriting will erase all existing data. Continue?`;
         
         debugLog(`Asking for confirmation: ${confirmMessage}`, 'info');
@@ -611,7 +678,7 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
         const writeStartTime = Date.now();
         
         try {
-            await writeTagDataMultiRecord(ndef);
+            await writeTagData(ndef);
         } catch (writeError) {
             // Detailed write error logging
             debugLog(`Write Error Details:`, 'error');
@@ -677,78 +744,6 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
     }
 }
 
-// New function to write tag data using multiple records for better memory management
-async function writeTagDataMultiRecord(ndef) {
-    const ownerToken = document.getElementById('ownerToken').value;
-
-    if (!ownerToken) {
-        showStatus('Owner token is required', true);
-        return;
-    }
-
-    // Get the current URL (without query parameters) to use as the app URL
-    const appUrl = window.location.origin + window.location.pathname;
-
-    // Prepare records array
-    const records = [];
-    
-    // First record: URL (always first for better compatibility)
-    records.push({
-        recordType: "url",
-        data: appUrl + "?action=read"
-    });
-    
-    // Second record: Owner information (encrypted)
-    const ownerData = {
-        type: "encrypted_nfc_multi_user_owner",
-        version: "1.1",
-        id: "owner",
-        token: CryptoJS.AES.encrypt(ownerToken, ownerToken).toString(),
-        timestamp: Date.now()
-    };
-    
-    records.push({
-        recordType: "text",
-        data: JSON.stringify(ownerData)
-    });
-    
-    // Additional records: One for each reader
-    for (const reader of readers) {
-        // Encrypt the reader token with the owner token
-        const encryptedToken = CryptoJS.AES.encrypt(reader.token, ownerToken).toString();
-        
-        const readerData = {
-            type: "encrypted_nfc_multi_user_reader",
-            version: "1.1",
-            id: reader.id,
-            token: encryptedToken
-        };
-        
-        records.push({
-            recordType: "text",
-            data: JSON.stringify(readerData)
-        });
-    }
-
-    // Log the size of each record
-    let totalSize = 0;
-    records.forEach((record, index) => {
-        const recordSize = new Blob([record.data]).size;
-        totalSize += recordSize;
-        debugLog(`Record ${index}: ${record.recordType}, Size: ${recordSize} bytes`, 'info');
-    });
-    debugLog(`Total payload size: ${totalSize} bytes`, 'info');
-
-    try {
-        // Write all records to the tag
-        await ndef.write({ records });
-        return true;
-    } catch (error) {
-        debugLog(`Write error: ${error}`, 'error');
-        throw error;
-    }
-}
-
 // Handle tag in update mode (adding readers to existing tag)
 async function handleTagInUpdateMode(ndef, message, serialNumber) {
     debugLog(`Handling tag in UPDATE mode. Serial: ${serialNumber}`, 'info');
@@ -773,59 +768,26 @@ async function handleTagInUpdateMode(ndef, message, serialNumber) {
         // Get the current URL (without query parameters) to use as the app URL
         const appUrl = window.location.origin + window.location.pathname;
         
-        // Prepare records array - start with existing records we want to keep
-        const records = [];
+        // Prepare records
+        const records = [
+            // First record is always the URL
+            {
+                recordType: "url",
+                data: appUrl + "?action=read"
+            },
+            // Owner record
+            createOwnerRecord(ownerToken)
+        ];
         
-        // First record: URL (always first for better compatibility)
-        records.push({
-            recordType: "url",
-            data: appUrl + "?action=read"
-        });
+        // Add reader records
+        const readerRecords = tagData.readers.map(createReaderRecord);
+        records.push(...readerRecords);
         
-        // Second record: Owner information (encrypted)
-        const ownerData = {
-            type: "encrypted_nfc_multi_user_owner",
-            version: "1.1",
-            id: "owner",
-            token: CryptoJS.AES.encrypt(ownerToken, ownerToken).toString(),
-            timestamp: Date.now()
-        };
-        
-        records.push({
-            recordType: "text",
-            data: JSON.stringify(ownerData)
-        });
-        
-        // Additional records: One for each reader
-        for (const reader of tagData.readers) {
-            // Encrypt the reader token with the owner token
-            const encryptedToken = CryptoJS.AES.encrypt(reader.token, ownerToken).toString();
-            
-            const readerData = {
-                type: "encrypted_nfc_multi_user_reader",
-                version: "1.1",
-                id: reader.id,
-                token: encryptedToken
-            };
-            
-            records.push({
-                recordType: "text",
-                data: JSON.stringify(readerData)
-            });
-        }
-        
-        // Log the size of each record
-        let totalSize = 0;
-        records.forEach((record, index) => {
-            const recordSize = new Blob([record.data]).size;
-            totalSize += recordSize;
-            debugLog(`Record ${index}: ${record.recordType}, Size: ${recordSize} bytes`, 'info');
-        });
-        debugLog(`Total payload size: ${totalSize} bytes`, 'info');
+        debugLog(`About to write updated tag data with ${tagData.readers.length} readers`, 'info');
         
         const writeStartTime = Date.now();
         
-        // Write all records to the tag
+        // Write directly without further confirmation since we're in update mode
         await ndef.write({ records });
         
         const writeEndTime = Date.now();
@@ -902,7 +864,7 @@ async function handleTagInReadMode(message, serialNumber) {
     nfcOperationState.mode = 'IDLE';
 }
 
-// Process an NFC tag and determine the correct UI to show
+// Modified processNFCTag to handle multiple records
 async function processNFCTag(message) {
     debugLog("Processing NFC tag message", 'info');
     
@@ -926,60 +888,20 @@ async function processNFCTag(message) {
         return;
     }
     
-    let ownerData = null;
+    debugLog(`Found ${message.records.length} records on tag`, 'info');
+    
+    // Find and process specific record types
+    let ownerRecord = null;
     let readerRecords = [];
     let hasURLRecord = false;
     let urlTarget = '';
     let isOurFormat = false;
-    let hasUsefulData = false;
-    
-    // Log all records for debugging
-    debugLog(`Found ${message.records.length} records on tag`, 'info');
     
     // Examine all records on the tag
     for (const record of message.records) {
         debugLog(`Record type: ${record.recordType}`, 'info');
         
-        if (record.recordType === "text") {
-            try {
-                const textDecoder = new TextDecoder();
-                const text = textDecoder.decode(record.data);
-                debugLog(`Text record content: ${text.substring(0, 50)}...`, 'info');
-                
-                // Check if the text record actually contains data
-                if (text && text.trim().length > 0) {
-                    hasUsefulData = true;
-                    
-                    try {
-                        const recordData = JSON.parse(text);
-                        
-                        // Check if it's our format
-                        if (recordData && recordData.type) {
-                            if (recordData.type === "encrypted_nfc_multi_user_owner") {
-                                isOurFormat = true;
-                                ownerData = recordData;
-                                debugLog("Found owner record", 'success');
-                            } else if (recordData.type === "encrypted_nfc_multi_user_reader") {
-                                isOurFormat = true;
-                                readerRecords.push(recordData);
-                                debugLog(`Found reader record: ${recordData.id}`, 'success');
-                            } else if (recordData.type === "encrypted_nfc_multi_user") {
-                                // Legacy format support
-                                isOurFormat = true;
-                                debugLog("Found legacy format tag", 'info');
-                                return processLegacyTag(recordData);
-                            }
-                        }
-                    } catch (jsonError) {
-                        debugLog(`Failed to parse JSON: ${jsonError}`, 'warning');
-                    }
-                } else {
-                    debugLog("Empty text record found", 'warning');
-                }
-            } catch (e) {
-                debugLog(`Error decoding text data: ${e}`, 'error');
-            }
-        } else if (record.recordType === "url") {
+        if (record.recordType === "url") {
             try {
                 const textDecoder = new TextDecoder();
                 urlTarget = textDecoder.decode(record.data);
@@ -987,7 +909,6 @@ async function processNFCTag(message) {
                 // Check if the URL actually contains data
                 if (urlTarget && urlTarget.trim().length > 0) {
                     hasURLRecord = true;
-                    hasUsefulData = true;
                     debugLog(`URL record found: ${urlTarget}`, 'info');
                 } else {
                     debugLog("Empty URL record found", 'warning');
@@ -995,38 +916,60 @@ async function processNFCTag(message) {
             } catch (e) {
                 debugLog(`Error decoding URL data: ${e}`, 'error');
             }
+        } else if (record.recordType === "text") {
+            try {
+                const textDecoder = new TextDecoder();
+                const text = textDecoder.decode(record.data);
+                debugLog(`Text record content: ${text.substring(0, 50)}...`, 'info');
+                
+                try {
+                    const recordData = JSON.parse(text);
+                    
+                    // Process different record types
+                    if (recordData.type === "owner") {
+                        ownerRecord = recordData;
+                        isOurFormat = true;
+                        debugLog('Found owner record', 'info');
+                    } else if (recordData.type === "reader") {
+                        readerRecords.push(recordData);
+                        isOurFormat = true;
+                        debugLog(`Found reader record: ${recordData.id}`, 'info');
+                    } else if (recordData.type === "encrypted_nfc_multi_user") {
+                        // Handle legacy format for backward compatibility
+                        debugLog("Found legacy encrypted format", 'info');
+                        showStatus("Legacy encrypted tag detected");
+                        switchToTokenEntryUI(recordData);
+                        return;
+                    } else {
+                        debugLog(`Unknown record type: ${recordData.type}`, 'warning');
+                    }
+                } catch (jsonError) {
+                    debugLog(`Failed to parse JSON: ${jsonError}`, 'warning');
+                }
+            } catch (e) {
+                debugLog(`Error decoding text data: ${e}`, 'error');
+            }
         }
     }
     
-    // If the tag has records but they're all empty or corrupted, treat as empty
-    if (!hasUsefulData) {
-        debugLog("Tag has records but no useful data - treating as empty", 'warning');
-        showStatus("Tag appears to be empty or corrupted");
-        switchToCreateNewTagUI();
-        return;
-    }
-    
-    // CASE 1: Tag has our multi-record format
-    if (isOurFormat && ownerData) {
+    // CASE 1: Tag has our format with owner and readers
+    if (isOurFormat && ownerRecord) {
         debugLog("Processing tag with our multi-record format", 'info');
-        showStatus("Encrypted tag detected");
+        showStatus("NFC tag detected");
         
-        // Reconstruct tag data for compatibility with existing code
-        const reconstructedTagData = {
-            type: "encrypted_nfc_multi_user",
-            version: "1.1",
-            data: ownerData.token, // This is the encrypted owner token
-            ownerRecord: ownerData,
-            readerRecords: readerRecords
+        // Prepare tag data in the format expected by the UI
+        const tagData = {
+            owner: ownerRecord,
+            readers: readerRecords
         };
         
         // Show token entry UI
-        switchToTokenEntryUI(reconstructedTagData);
+        switchToTokenEntryUI(tagData);
         return;
     }
     
     // CASE 2: Tag has some data but not our format
-    if (hasUsefulData) {
+    if (hasURLRecord || message.records.length > 0) {
         debugLog("Tag has data but not in our format", 'warning');
         showStatus("Found tag with existing data", true);
         
@@ -1042,149 +985,6 @@ async function processNFCTag(message) {
     showStatus("Tag format not recognized");
     switchToCreateNewTagUI();
 }
-
-// Process a legacy format tag
-function processLegacyTag(tagData) {
-    debugLog("Processing legacy format tag", 'info');
-    showStatus("Legacy format tag detected");
-    
-    // Show token entry UI with legacy data
-    switchToTokenEntryUI(tagData);
-}
-
-// Access tag with the provided token
-function accessTag(tagData, token) {
-    debugLog(`Attempting to access tag with token`, 'info');
-    
-    try {
-        // Check if this is a legacy format tag
-        if (tagData.type === "encrypted_nfc_multi_user" && !tagData.ownerRecord) {
-            return accessLegacyTag(tagData, token);
-        }
-        
-        // For multi-record format
-        // First try to decrypt the owner token
-        let isOwner = false;
-        let ownerId = "owner";
-        let ownerToken = null;
-        
-        try {
-            // Try to decrypt the owner token with the provided token
-            // If successful, this is the owner
-            const decryptedOwnerToken = CryptoJS.AES.decrypt(tagData.data, token).toString(CryptoJS.enc.Utf8);
-            if (decryptedOwnerToken && decryptedOwnerToken === token) {
-                isOwner = true;
-                ownerToken = token;
-                debugLog("Owner access granted", 'success');
-            }
-        } catch (e) {
-            // Not the owner, continue to check if it's a reader
-            debugLog("Not owner token, checking reader tokens", 'info');
-        }
-        
-        // If not owner, check if it's a reader token
-        let readerId = null;
-        if (!isOwner && tagData.readerRecords) {
-            for (const reader of tagData.readerRecords) {
-                try {
-                    // Try to decrypt this reader's token with the owner token
-                    // We don't have the owner token, so we use the provided token as the reader token
-                    // and check if it matches any of the reader records
-                    if (reader.id === token || reader.token === token) {
-                        readerId = reader.id;
-                        debugLog(`Reader "${readerId}" access granted by direct match`, 'success');
-                        break;
-                    }
-                } catch (e) {
-                    // Continue checking other readers
-                }
-            }
-        }
-        
-        // Reconstruct the tag data in the format expected by the UI
-        const reconstructedData = {
-            owner: {
-                id: ownerId,
-                token: ownerToken || ""
-            },
-            readers: tagData.readerRecords.map(r => ({
-                id: r.id,
-                token: r.token // This is still encrypted
-            })),
-            timestamp: tagData.ownerRecord ? tagData.ownerRecord.timestamp : Date.now()
-        };
-        
-        if (isOwner) {
-            showStatus("Owner access granted!");
-            switchToManageTagUI(reconstructedData, token, "owner");
-        } else if (readerId) {
-            showStatus(`Reader "${readerId}" access granted!`);
-            switchToManageTagUI(reconstructedData, token, "reader", readerId);
-        } else {
-            debugLog("Invalid token - Access denied", 'error');
-            showStatus("Invalid token - Access denied", true);
-        }
-        
-    } catch (error) {
-        debugLog(`Access error: ${error}`, 'error');
-        showStatus("Invalid token or corrupted tag data", true);
-    }
-}
-
-// Access legacy format tag
-function accessLegacyTag(tagData, token) {
-    debugLog(`Attempting to access legacy format tag`, 'info');
-    
-    try {
-        // Try to decrypt with provided token
-        const decryptedBytes = CryptoJS.AES.decrypt(tagData.data, token);
-        const decryptedData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
-        
-        debugLog("Successfully decrypted legacy tag data", 'success');
-        
-        // If we got here, decryption was successful
-        
-        // Check if this token is the owner token
-        if (decryptedData.owner && decryptedData.owner.token === token) {
-            debugLog("Owner access granted", 'success');
-            showStatus("Owner access granted!");
-            
-            // Switch to tag management UI with owner privileges
-            switchToManageTagUI(decryptedData, token, "owner");
-        } 
-        // Check if this token is a reader token
-        else if (decryptedData.readers && Array.isArray(decryptedData.readers)) {
-            const reader = decryptedData.readers.find(r => r.token === token);
-            
-            if (reader) {
-                debugLog(`Reader "${reader.id}" access granted`, 'success');
-                showStatus(`Reader "${reader.id}" access granted!`);
-                
-                // Switch to tag management UI with reader privileges
-                switchToManageTagUI(decryptedData, token, "reader", reader.id);
-            } else {
-                debugLog("Invalid token - Access denied", 'error');
-                showStatus("Invalid token - Access denied", true);
-            }
-        } else {
-            debugLog("Invalid tag format", 'error');
-            showStatus("Invalid tag format", true);
-        }
-    } catch (error) {
-        debugLog(`Legacy access error: ${error}`, 'error');
-        showStatus("Invalid token or corrupted tag data", true);
-    }
-}
-
-// Global flag to track if a write operation is in progress
-let isWriting = false;
-
-// Modify the write tag button click handler
-document.getElementById('write-tag-button').onclick = () => {
-    debugLog("Write tag button clicked", 'info');
-    isWriting = true;
-    startNFCOperation('WRITING');
-};
 
 // Switch to token entry UI for existing encrypted tags
 function switchToTokenEntryUI(tagData) {
@@ -1215,6 +1015,88 @@ function switchToTokenEntryUI(tagData) {
         // Try to decrypt and access the tag
         accessTag(tagData, token);
     };
+}
+
+// Modify the accessTag function to work with new record structure
+function accessTag(tagData, token) {
+    debugLog(`Attempting to access tag with token`, 'info');
+    
+    try {
+        // Handle legacy encrypted format
+        if (tagData.type === "encrypted_nfc_multi_user") {
+            debugLog("Processing legacy encrypted format", 'info');
+            try {
+                // Try to decrypt with provided token
+                const decryptedBytes = CryptoJS.AES.decrypt(tagData.data, token);
+                const decryptedData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+                
+                debugLog("Successfully decrypted legacy tag data", 'success');
+                
+                // Check if this token is the owner token
+                if (decryptedData.owner && decryptedData.owner.token === token) {
+                    debugLog("Owner access granted (legacy format)", 'success');
+                    showStatus("Owner access granted!");
+                    
+                    // Switch to tag management UI with owner privileges
+                    switchToManageTagUI(decryptedData, token, "owner");
+                    return;
+                } 
+                // Check if this token is a reader token
+                else if (decryptedData.readers && Array.isArray(decryptedData.readers)) {
+                    const reader = decryptedData.readers.find(r => r.token === token);
+                    
+                    if (reader) {
+                        debugLog(`Reader "${reader.id}" access granted (legacy format)`, 'success');
+                        showStatus(`Reader "${reader.id}" access granted!`);
+                        
+                        // Switch to tag management UI with reader privileges
+                        switchToManageTagUI(decryptedData, token, "reader", reader.id);
+                        return;
+                    }
+                }
+                
+                // If we get here, token didn't match
+                debugLog("Invalid token for legacy format - Access denied", 'error');
+                showStatus("Invalid token - Access denied", true);
+                return;
+            } catch (error) {
+                debugLog(`Legacy format access error: ${error}`, 'error');
+                showStatus("Invalid token or corrupted tag data", true);
+                return;
+            }
+        }
+        
+        // New multi-record format
+        // Check if this token is the owner token
+        if (tagData.owner && tagData.owner.token === token) {
+            debugLog("Owner access granted", 'success');
+            showStatus("Owner access granted!");
+            
+            // Switch to tag management UI with owner privileges
+            switchToManageTagUI(tagData, token, "owner");
+        } 
+        // Check if this token is a reader token
+        else if (tagData.readers && Array.isArray(tagData.readers)) {
+            const reader = tagData.readers.find(r => r.token === token);
+            
+            if (reader) {
+                debugLog(`Reader "${reader.id}" access granted`, 'success');
+                showStatus(`Reader "${reader.id}" access granted!`);
+                
+                // Switch to tag management UI with reader privileges
+                switchToManageTagUI(tagData, token, "reader", reader.id);
+            } else {
+                debugLog("Invalid token - Access denied", 'error');
+                showStatus("Invalid token - Access denied", true);
+            }
+        } else {
+            debugLog("Invalid tag format", 'error');
+            showStatus("Invalid tag format", true);
+        }
+    } catch (error) {
+        debugLog(`Access error: ${error}`, 'error');
+        showStatus("Invalid token or corrupted tag data", true);
+    }
 }
 
 // Switch to UI for managing an existing tag
@@ -1324,7 +1206,6 @@ function switchToCreateNewTagUI() {
     // Set up write button - Use write mode
     document.getElementById('write-tag-button').onclick = () => {
         debugLog("Write tag button clicked", 'info');
-        isWriting = true;
         startNFCOperation('WRITING');
     };
 }
@@ -1592,35 +1473,6 @@ async function saveContacts() {
     }
 }
 
-// Enhanced error logging for NFC operations
-function logNFCWriteDetails(payload) {
-    try {
-        // Log payload size
-        const payloadSize = new Blob([JSON.stringify(payload)]).size;
-        debugLog(`Payload details:`, 'info');
-        debugLog(`- Total payload size: ${payloadSize} bytes`, 'info');
-        debugLog(`- Number of records: ${payload.records ? payload.records.length : 'N/A'}`, 'info');
-        
-        // Log record details if available
-        if (payload.records) {
-            payload.records.forEach((record, index) => {
-                debugLog(`Record ${index + 1}:`, 'info');
-                debugLog(`- Type: ${record.recordType}`, 'info');
-                
-                // Try to get record size
-                try {
-                    const recordSize = new Blob([record.data]).size;
-                    debugLog(`- Size: ${recordSize} bytes`, 'info');
-                } catch (sizeError) {
-                    debugLog(`- Size calculation error: ${sizeError}`, 'warning');
-                }
-            });
-        }
-    } catch (logError) {
-        debugLog(`Error logging write details: ${logError}`, 'error');
-    }
-}
-
 // Load saved readers into current session
 async function loadSavedReaders() {
     const ownerToken = document.getElementById('ownerToken').value;
@@ -1692,4 +1544,3 @@ function initApp() {
 
 // Call initApp when the page loads
 window.addEventListener('load', initApp);
-
