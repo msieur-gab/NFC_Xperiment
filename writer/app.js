@@ -7,6 +7,10 @@ let settings = {
     tokenLength: '12'
 };
 
+// App mode flags to control NFC behavior
+let appMode = 'read'; // 'read', 'write', 'update'
+let pendingTagData = null; // Used to store data waiting to be written
+
 // Initialize settings from localStorage
 function initSettings() {
     const savedSettings = localStorage.getItem('nfc_writer_settings');
@@ -211,125 +215,105 @@ function showTagPreview() {
     document.getElementById('tagPreview').style.display = 'block';
 }
 
-// Improved NFC tag handling with conditional behavior
-async function handleNFCTag(isWriteMode = false) {
+// Universal NFC handler with mode awareness
+async function startNFCOperation(mode, data = null) {
     if (!('NDEFReader' in window)) {
         showStatus("NFC not supported on this device", true);
         return;
     }
-
-    // Show clear instructions based on mode
+    
+    // Set global app mode
+    appMode = mode;
+    pendingTagData = data;
+    
+    // Show scanning animation with appropriate message
     document.getElementById('scanning-animation').style.display = 'block';
     
-    if (isWriteMode) {
-        document.querySelector('#scanning-animation p').textContent = 'Please bring the NFC tag to the back of your phone to write...';
-        showStatus("Ready to write to tag. Place tag against your device.");
-    } else {
-        document.querySelector('#scanning-animation p').textContent = 'Waiting for NFC tag...';
-        showStatus("Waiting for NFC tag. Place tag against your device.");
+    let operationText = '';
+    let statusText = '';
+    
+    switch (mode) {
+        case 'read':
+            operationText = 'Waiting for NFC tag...';
+            statusText = "Place your tag against the device to read";
+            break;
+        case 'write':
+            operationText = 'Ready to write to tag...';
+            statusText = "<span class='write-mode'>WRITE MODE</span> Place tag against device to write data";
+            break;
+        case 'update':
+            operationText = 'Ready to update tag...';
+            statusText = "<span class='write-mode'>UPDATE MODE</span> Place tag against device to save changes";
+            break;
     }
+    
+    document.querySelector('#scanning-animation p').textContent = operationText;
+    if (document.querySelector('.scan-instructions')) {
+        document.querySelector('.scan-instructions').textContent = 'Bring the NFC tag to the back of your device';
+    }
+    
+    showStatus(statusText);
     
     try {
         const ndef = new NDEFReader();
         
-        // Clear any previous event listeners to prevent duplicates
+        // Clear any previous event listeners
         ndef.onreading = null;
         
-        await ndef.scan();
-        
-        // If we're in write mode, we'll handle the write when the tag is detected
-        if (isWriteMode) {
-            ndef.addEventListener("reading", async ({ message, serialNumber }) => {
-                console.log(`Tag detected in write mode. Serial: ${serialNumber}`);
-                
-                // Check if the tag has our format or completely different data
-                let isOurFormat = false;
-                let hasAnyData = false;
-                
-                if (message.records && message.records.length > 0) {
-                    hasAnyData = true;
-                    
-                    // Check if it matches our format
-                    for (const record of message.records) {
-                        if (record.recordType === "text") {
-                            try {
-                                const textDecoder = new TextDecoder();
-                                const text = textDecoder.decode(record.data);
-                                try {
-                                    const data = JSON.parse(text);
-                                    if (data.type === "encrypted_nfc_multi_user") {
-                                        isOurFormat = true;
-                                        break;
-                                    }
-                                } catch (jsonError) {
-                                    // Not JSON data, continue checking
-                                }
-                            } catch (e) {
-                                // Decoding error, continue checking
-                            }
-                        }
-                    }
-                }
-                
-                // Handle confirmation differently based on tag content
-                if (hasAnyData) {
-                    let confirmMessage = isOurFormat ? 
-                        "This tag already contains encrypted data from this app. Do you want to overwrite it?" :
-                        "This tag contains data in an unknown format. Overwriting will erase all existing data on the tag. Continue?";
-                    
-                    const confirmOverwrite = confirm(confirmMessage);
-                    if (!confirmOverwrite) {
-                        document.getElementById('scanning-animation').style.display = 'none';
-                        showStatus("Writing cancelled - existing data preserved", true);
-                        return;
-                    }
-                }
-                
-                try {
-                    await writeTagData();
-                    document.getElementById('scanning-animation').style.display = 'none';
-                    showStatus("Tag successfully written!");
-                } catch (error) {
-                    document.getElementById('scanning-animation').style.display = 'none';
-                    showStatus(`Error writing to tag: ${error}`, true);
-                }
-            });
-            return;
-        }
-        
-        // Otherwise we're in read mode
-        ndef.addEventListener("reading", ({ message, serialNumber }) => {
-            console.log(`Tag detected in read mode. Serial: ${serialNumber}`);
-            document.getElementById('scanning-animation').style.display = 'none';
+        // Set up the reading event handler based on mode
+        ndef.addEventListener("reading", async ({ message, serialNumber }) => {
+            console.log(`Tag detected in ${mode} mode. Serial: ${serialNumber}`);
             
-            // Process the message
-            processNFCTag(message);
+            try {
+                if (mode === 'read') {
+                    // Process tag for reading
+                    document.getElementById('scanning-animation').style.display = 'none';
+                    processNFCTag(message);
+                } 
+                else if (mode === 'write' || mode === 'update') {
+                    // Directly write without attempting to re-read tag content
+                    if (mode === 'write') {
+                        await writeTagData();
+                    } else {
+                        await writeUpdateToTag();
+                    }
+                    
+                    document.getElementById('scanning-animation').style.display = 'none';
+                    showStatus(mode === 'write' ? "Tag successfully written!" : "Tag successfully updated!");
+                    
+                    // Reset app mode
+                    appMode = 'read';
+                    pendingTagData = null;
+                }
+            } catch (error) {
+                document.getElementById('scanning-animation').style.display = 'none';
+                showStatus(`Error with NFC operation: ${error}`, true);
+                console.error("NFC operation error:", error);
+                
+                // Reset app mode on error
+                appMode = 'read';
+                pendingTagData = null;
+            }
         });
+        
+        // Start scanning
+        await ndef.scan();
+        console.log(`NFC scanning started in ${mode} mode`);
+        
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
-        showStatus(`Error with NFC: ${error}`, true);
-        console.error("NFC error:", error);
+        showStatus(`Error starting NFC: ${error}`, true);
+        console.error("NFC initialization error:", error);
+        
+        // Reset app mode on error
+        appMode = 'read';
+        pendingTagData = null;
     }
 }
 
-// Check if tag has data
-async function checkTagHasData(message) {
-    if (!message.records || message.records.length === 0) {
-        return false;
-    }
-    
-    for (const record of message.records) {
-        if (record.recordType === "text" || record.recordType === "url") {
-            return true;
-        }
-    }
-    
-    return false;
-}
-
-// Process an NFC tag and determine the correct UI to show
+// Process an NFC tag and determine the correct UI to show (read mode)
 async function processNFCTag(message) {
-    console.log("Processing NFC tag message:", message);
+    console.log("Processing NFC tag message for reading");
     
     // Check if the tag has any records
     if (!message.records || message.records.length === 0) {
@@ -342,9 +326,6 @@ async function processNFCTag(message) {
     let hasURLRecord = false;
     let urlTarget = '';
     let isOurFormat = false;
-    
-    // Log all records for debugging
-    console.log(`Found ${message.records.length} records on tag`);
     
     // Examine all records on the tag
     for (const record of message.records) {
@@ -522,8 +503,15 @@ function switchToManageTagUI(tagData, token, accessLevel, readerId = null) {
         // Set up add reader button
         document.getElementById('add-reader-button').onclick = () => addReaderToTag();
         
-        // Set up save button
-        document.getElementById('save-changes-button').onclick = () => saveTagChanges();
+        // Set up save button with the new NFC operation handler
+        document.getElementById('save-changes-button').onclick = () => {
+            const manageSection = document.getElementById('manage-tag-section');
+            const tagData = JSON.parse(manageSection.dataset.tagData);
+            const ownerToken = manageSection.dataset.accessToken;
+            
+            // Start update operation with the tag data and owner token
+            startNFCOperation('update', { tagData, ownerToken });
+        };
     } else if (accessLevel === "reader") {
         // Reader can only see limited information
         document.getElementById('owner-controls').style.display = 'none';
@@ -554,17 +542,16 @@ function switchToCreateNewTagUI() {
     // Generate a new owner token
     generateOwnerToken();
     
-    // Set up write button
-    document.getElementById('write-tag-button').onclick = () => handleNFCTag(true);
+    // Set up write button with the new NFC operation handler
+    document.getElementById('write-tag-button').onclick = () => startNFCOperation('write');
 }
 
-// Write the tag data using current UI state
+// Write tag data for a new tag
 async function writeTagData() {
     const ownerToken = document.getElementById('ownerToken').value;
 
     if (!ownerToken) {
-        showStatus('Owner token is required', true);
-        return;
+        throw new Error('Owner token is required');
     }
 
     // Create NFC tag payload
@@ -605,6 +592,48 @@ async function writeTagData() {
             {
                 recordType: "text",
                 data: JSON.stringify(tagData)
+            },
+            {
+                recordType: "url",
+                data: appUrl + "?action=read"
+            }
+        ]
+    });
+}
+
+// Write updated tag data (for existing tag)
+async function writeUpdateToTag() {
+    if (!pendingTagData) {
+        throw new Error('No tag data to write');
+    }
+
+    const { tagData, ownerToken } = pendingTagData;
+    
+    // Encrypt the payload with the owner's token as the key
+    const encryptedPayload = CryptoJS.AES.encrypt(
+        JSON.stringify(tagData),
+        ownerToken
+    ).toString();
+    
+    // Create a wrapper object
+    const wrappedTagData = {
+        type: "encrypted_nfc_multi_user",
+        version: "1.0",
+        data: encryptedPayload
+    };
+    
+    // Get the current URL (without query parameters) to use as the app URL
+    const appUrl = window.location.origin + window.location.pathname;
+
+    // Get the NDEFReader
+    const ndef = new NDEFReader();
+    
+    // Write to NFC tag
+    await ndef.write({
+        records: [
+            {
+                recordType: "text",
+                data: JSON.stringify(wrappedTagData)
             },
             {
                 recordType: "url",
@@ -663,107 +692,6 @@ function removeReaderFromTag(index) {
         switchToManageTagUI(tagData, manageSection.dataset.accessToken, "owner");
         
         showStatus('Reader removed');
-    }
-}
-
-// Save changes to an existing tag (owner only)
-async function saveTagChanges() {
-    const manageSection = document.getElementById('manage-tag-section');
-    const tagData = JSON.parse(manageSection.dataset.tagData);
-    const ownerToken = manageSection.dataset.accessToken;
-    
-    // Show scanning animation with clear write instructions
-    document.getElementById('scanning-animation').style.display = 'block';
-    document.querySelector('#scanning-animation p').textContent = 'Ready to write changes...';
-    
-    if (document.querySelector('.scan-instructions')) {
-        document.querySelector('.scan-instructions').textContent = 'Bring the NFC tag to the back of your device';
-    }
-    
-    // Add a visual write mode indicator to the status
-    showStatus('<span class="write-mode">WRITE MODE</span> Place tag against your device to save changes');
-    
-    try {
-        // Pre-prepare the data to write
-        const encryptedPayload = CryptoJS.AES.encrypt(
-            JSON.stringify(tagData),
-            ownerToken
-        ).toString();
-        
-        // Create wrapper
-        const newTagData = {
-            type: "encrypted_nfc_multi_user",
-            version: "1.0",
-            data: encryptedPayload
-        };
-        
-        // Get the current URL (without query parameters) to use as the app URL
-        const appUrl = window.location.origin + window.location.pathname;
-
-        // Create a flag to track whether we've completed the write
-        let writeCompleted = false;
-
-        // Write to NFC tag - Dedicated write operation
-        const ndef = new NDEFReader();
-        
-        // Set up event listeners before scanning
-        ndef.addEventListener("reading", async ({ message, serialNumber }) => {
-            // Skip if we've already completed a write in this session
-            if (writeCompleted) return;
-            
-            try {
-                console.log(`Tag detected in WRITE mode. Serial: ${serialNumber}`);
-                
-                // We're already in write mode with owner authentication, skip confirmation
-                // and directly write to the tag
-                await ndef.write({
-                    records: [
-                        {
-                            recordType: "text",
-                            data: JSON.stringify(newTagData)
-                        },
-                        {
-                            recordType: "url",
-                            data: appUrl + "?action=read"
-                        }
-                    ]
-                });
-                
-                // Mark as completed to prevent multiple writes
-                writeCompleted = true;
-                
-                // Update the UI
-                document.getElementById('scanning-animation').style.display = 'none';
-                showStatus("✅ Tag successfully updated with new reader!");
-                
-                // No need to scan anymore
-                try {
-                    await ndef.stop();
-                } catch (stopError) {
-                    console.log("Error stopping NFC scan:", stopError);
-                }
-            } catch (error) {
-                document.getElementById('scanning-animation').style.display = 'none';
-                showStatus(`❌ Error writing to tag: ${error}`, true);
-                console.error("Write error:", error);
-                
-                // Try to stop scanning
-                try {
-                    await ndef.stop();
-                } catch (stopError) {
-                    console.log("Error stopping NFC scan:", stopError);
-                }
-            }
-        });
-        
-        // Start scanning after event listeners are set up
-        await ndef.scan();
-        console.log("NFC scanning started in WRITE mode");
-        
-    } catch (error) {
-        document.getElementById('scanning-animation').style.display = 'none';
-        showStatus(`Error starting NFC: ${error}`, true);
-        console.error("NFC initialization error:", error);
     }
 }
 
@@ -982,7 +910,7 @@ function initApp() {
     
     if (action === 'read') {
         // Auto-start scanning if launched from a tag
-        handleNFCTag(false);
+        startNFCOperation('read');
     } else {
         // Default to create new tag UI
         switchToCreateNewTagUI();
