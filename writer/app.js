@@ -128,23 +128,48 @@ async function safeStopNFC(reader) {
     if (!reader) return;
     
     try {
-        // Different browsers might implement this differently
-        if (typeof reader.stop === 'function') {
-            await reader.stop();
-            debugLog('Stopped NFC reader', 'info');
-        } else if (typeof reader.stopScan === 'function') {
-            // Some implementations use stopScan instead
-            await reader.stopScan();
-            debugLog('Stopped NFC reader using stopScan', 'info');
-        } else {
-            // No stop method available
-            debugLog('No stop method available on this NFC reader implementation', 'warning');
-            // Set to null to allow garbage collection
-            ndef = null;
+        // Multiple methods to try stopping the NFC reader
+        const stopMethods = [
+            'stop',         // Standard method
+            'stopScan',     // Alternative method
+            'close',        // Generic close method
+            'abortScan'     // Direct abort method
+        ];
+        
+        let stopped = false;
+        
+        for (const method of stopMethods) {
+            if (typeof reader[method] === 'function') {
+                try {
+                    await reader[method]();
+                    debugLog(`Stopped NFC reader using ${method}()`, 'info');
+                    stopped = true;
+                    break;
+                } catch (methodError) {
+                    debugLog(`Error using ${method}(): ${methodError}`, 'warning');
+                }
+            }
+        }
+        
+        // If no standard methods work, try an alternative approach
+        if (!stopped) {
+            // Some browsers might require manually removing event listeners
+            if (reader.removeEventListener) {
+                try {
+                    reader.removeEventListener('reading', handleNFCReading);
+                    reader.removeEventListener('error', handleNFCError);
+                    debugLog('Removed NFC event listeners', 'info');
+                } catch (listenerError) {
+                    debugLog(`Error removing listeners: ${listenerError}`, 'warning');
+                }
+            }
+            
+            debugLog('No standard stop method available on this NFC reader', 'warning');
         }
     } catch (error) {
-        debugLog(`Error stopping NFC reader: ${error}`, 'warning');
-        // Set to null even on error to allow garbage collection
+        debugLog(`Unexpected error stopping NFC reader: ${error}`, 'error');
+    } finally {
+        // Always reset the global NFC reader reference
         ndef = null;
     }
 }
