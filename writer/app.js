@@ -1439,7 +1439,7 @@ function removeReaderFromTag(index) {
 async function loadSavedReaders() {
     // This function should be simplified or removed if it only worked with contacts
     showStatus('This feature has been removed', true);
-    return;
+        return;
 }
 
 // Initialize the app
