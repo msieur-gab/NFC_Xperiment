@@ -1142,14 +1142,15 @@ function switchToTokenEntryUI(tagData) {
     tokenSection.style.display = 'block';
     
     // Clear previous token input
-    document.getElementById('accessToken').value = '';
+    const tokenInput = document.getElementById('accessToken');
+    tokenInput.value = '';
     
     // Store the encrypted data for later use
     tokenSection.dataset.encryptedData = JSON.stringify(tagData);
     
     // Set up the access button
     document.getElementById('accessButton').onclick = () => {
-        const token = document.getElementById('accessToken').value;
+        const token = tokenInput.value;
         if (!token) {
             showStatus("Please enter a token", true);
             return;
@@ -1158,6 +1159,40 @@ function switchToTokenEntryUI(tagData) {
         // Try to decrypt and access the tag
         accessTag(tagData, token);
     };
+    
+    // Add enter key support for the token input
+    tokenInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            document.getElementById('accessButton').click();
+        }
+    });
+    
+    // Focus on the token input for immediate typing
+    setTimeout(() => {
+        tokenInput.focus();
+    }, 300);
+    
+    // Show a helpful message
+    showStatus("NFC tag detected. Please enter your token to access it.");
+    
+    // Update the UI with more information if we have reader IDs
+    if (tagData.readers && tagData.readers.length > 0) {
+        const readerIds = tagData.readers
+            .filter(r => r.id)
+            .map(r => r.id)
+            .join(', ');
+            
+        if (readerIds) {
+            const infoBox = tokenSection.querySelector('.info-box');
+            if (infoBox) {
+                infoBox.innerHTML = `
+                    <p>This NFC tag contains protected data with ${tagData.readers.length} readers.</p>
+                    <p>Reader IDs: ${readerIds}</p>
+                    <p>Please enter your owner token to access and manage this tag.</p>
+                `;
+            }
+        }
+    }
 }
 
 // Simplified access function - only owner can access
@@ -1656,7 +1691,23 @@ function initApp() {
     if (action === 'read') {
         // Auto-start scanning if launched from a tag
         debugLog("Auto-starting scan from URL parameter", 'info');
-        startNFCOperation('READING');
+        
+        // Show a welcome message with instructions
+        const statusElement = document.getElementById('status-message');
+        statusElement.innerHTML = `
+            <div class="info-notification">
+                <div class="info-icon">i</div>
+                <div class="info-message">
+                    <h3>NFC Tag Detected</h3>
+                    <p>This app was launched from an NFC tag. Please hold your device near the tag again to read its contents.</p>
+                </div>
+            </div>
+        `;
+        
+        // Automatically start scanning
+        setTimeout(() => {
+            startNFCOperation('READING');
+        }, 500); // Short delay to ensure UI is ready
     } else {
         // Default to create new tag UI
         switchToCreateNewTagUI();
@@ -1672,6 +1723,50 @@ function initApp() {
     
     debugLog("App initialization complete", 'success');
 }
+
+// Add CSS for info notification
+document.head.insertAdjacentHTML('beforeend', `
+<style>
+.info-notification {
+    display: flex;
+    background-color: #eff6ff;
+    border: 1px solid #2563eb;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 15px 0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.info-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background-color: #2563eb;
+    border-radius: 50%;
+    color: white;
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.info-message {
+    flex: 1;
+}
+
+.info-message h3 {
+    margin: 0 0 5px 0;
+    color: #2563eb;
+}
+
+.info-message p {
+    margin: 0;
+    color: #374151;
+}
+</style>
+`);
 
 // Call initApp when the page loads
 window.addEventListener('load', initApp);
