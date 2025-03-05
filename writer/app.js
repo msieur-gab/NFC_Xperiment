@@ -1788,7 +1788,7 @@ async function loadSavedReaders() {
     }
 }
 
-// Function to estimate tag memory capacity and usage
+// Function to estimate tag memory capacity and usage with improved tag detection
 function estimateTagMemory(message) {
     // Common NFC tag types and their typical capacities (in bytes)
     const tagTypes = {
@@ -1804,18 +1804,136 @@ function estimateTagMemory(message) {
     };
     
     // Default to a conservative estimate if we can't determine the type
-    let estimatedCapacity = 144; // Default to NTAG213 size
-    let tagTypeGuess = 'Unknown';
+    let estimatedCapacity = 504; // Default to NTAG215 size as middle ground
+    let tagTypeGuess = 'NTAG215'; // More likely to be this common type
+    
+    // Check for manual tag type override
+    const manualTagType = localStorage.getItem('manual_tag_type');
+    if (manualTagType) {
+        if (manualTagType === 'ntag213') {
+            tagTypeGuess = 'NTAG213';
+            estimatedCapacity = 144;
+            debugLog('Using manually selected tag type: NTAG213', 'info');
+            return {
+                tagType: tagTypeGuess,
+                estimatedCapacity,
+                currentUsage,
+                remainingSpace,
+                usagePercentage,
+                isManuallySet: true
+            };
+        } else if (manualTagType === 'ntag215') {
+            tagTypeGuess = 'NTAG215';
+            estimatedCapacity = 504;
+            debugLog('Using manually selected tag type: NTAG215', 'info');
+            return {
+                tagType: tagTypeGuess,
+                estimatedCapacity,
+                currentUsage,
+                remainingSpace,
+                usagePercentage,
+                isManuallySet: true
+            };
+        } else if (manualTagType === 'ntag216') {
+            tagTypeGuess = 'NTAG216';
+            estimatedCapacity = 888;
+            debugLog('Using manually selected tag type: NTAG216', 'info');
+            return {
+                tagType: tagTypeGuess,
+                estimatedCapacity,
+                currentUsage,
+                remainingSpace,
+                usagePercentage,
+                isManuallySet: true
+            };
+        }
+        // Add other tag types as needed
+    }
     
     // Try to determine tag type from serial number or other properties
     if (message.serialNumber) {
         const serialHex = message.serialNumber.toLowerCase();
+        debugLog(`Tag serial number: ${serialHex}`, 'info');
         
         // NTAG detection based on serial number patterns
         if (serialHex.startsWith('04')) {
+            // Most NXP NTAG start with 04
+            
+            // Try to determine specific NTAG type from serial number
+            // NTAG213/215/216 typically have 7-byte UIDs (14 hex chars)
             if (serialHex.length === 14) {
-                tagTypeGuess = 'NTAG21x';
-                estimatedCapacity = 504; // Assume NTAG215 as middle ground
+                // Check for specific manufacturer bytes that might indicate type
+                const manuBytes = serialHex.substring(2, 6);
+                
+                if (manuBytes === '0102') {
+                    tagTypeGuess = 'NTAG216';
+                    estimatedCapacity = 888;
+                } else if (manuBytes === '0103') {
+                    tagTypeGuess = 'NTAG215';
+                    estimatedCapacity = 504;
+                } else if (manuBytes === '0104') {
+                    tagTypeGuess = 'NTAG213';
+                    estimatedCapacity = 144;
+                } else {
+                    // If we can't determine exactly, try to guess from the data size
+                    
+                    // If the tag already has data, we can make a better guess based on usage
+                    if (message.records && message.records.length > 0) {
+                        // Calculate current data size
+                        let totalSize = 0;
+                        for (const record of message.records) {
+                            try {
+                                if (record.data) {
+                                    if (record.data instanceof ArrayBuffer) {
+                                        totalSize += record.data.byteLength;
+                                    } else {
+                                        const blob = new Blob([record.data]);
+                                        totalSize += blob.size;
+                                    }
+                                }
+                            } catch (e) {
+                                // Ignore errors in size calculation
+                            }
+                        }
+                        
+                        // If data size is large, it's probably a larger tag
+                        if (totalSize > 400) {
+                            tagTypeGuess = 'NTAG216';
+                            estimatedCapacity = 888;
+                        } else if (totalSize > 120) {
+                            tagTypeGuess = 'NTAG215';
+                            estimatedCapacity = 504;
+                        } else {
+                            tagTypeGuess = 'NTAG213';
+                            estimatedCapacity = 144;
+                        }
+                    }
+                }
+            } else if (serialHex.length === 16) {
+                // Likely a MIFARE Ultralight or NTAG21x with 8-byte UID
+                tagTypeGuess = 'NTAG216';
+                estimatedCapacity = 888; // Assume larger capacity to be safe
+            }
+        } else if (serialHex.startsWith('08')) {
+            // Likely a MIFARE Classic
+            tagTypeGuess = 'MIFARE_CLASSIC';
+            estimatedCapacity = 716;
+        }
+        
+        // Add manual override for testing specific tags
+        // This helps when you know exactly what tag you're using
+        const urlParams = new URLSearchParams(window.location.search);
+        const tagTypeParam = urlParams.get('tagtype');
+        if (tagTypeParam) {
+            if (tagTypeParam === 'ntag213') {
+                tagTypeGuess = 'NTAG213';
+                estimatedCapacity = 144;
+            } else if (tagTypeParam === 'ntag215') {
+                tagTypeGuess = 'NTAG215';
+                estimatedCapacity = 504;
+            } else if (tagTypeParam === 'ntag216') {
+                tagTypeGuess = 'NTAG216';
+                estimatedCapacity = 888;
             }
         }
     }
@@ -1851,6 +1969,8 @@ function estimateTagMemory(message) {
                 const recordSize = recordOverhead + dataSize + typeSize;
                 currentUsage += recordSize;
                 
+                debugLog(`Record size: ${recordSize} bytes (${record.recordType || 'unknown type'})`, 'info');
+                
             } catch (e) {
                 debugLog(`Error calculating record size: ${e}`, 'warning');
             }
@@ -1863,6 +1983,8 @@ function estimateTagMemory(message) {
     // Calculate remaining space
     const remainingSpace = Math.max(0, estimatedCapacity - currentUsage);
     const usagePercentage = Math.min(100, Math.round((currentUsage / estimatedCapacity) * 100));
+    
+    debugLog(`Tag type: ${tagTypeGuess}, Capacity: ${estimatedCapacity} bytes, Used: ${currentUsage} bytes (${usagePercentage}%)`, 'info');
     
     return {
         tagType: tagTypeGuess,
@@ -1915,6 +2037,64 @@ function displayTagMemoryInfo(message) {
     }
 }
 
+// Add a manual tag type selector to the UI
+function addTagTypeSelector() {
+    // Create the selector HTML
+    const selectorHTML = `
+        <div class="tag-type-selector">
+            <h4>Manual Tag Type Selection</h4>
+            <p>If your tag type is incorrectly detected, select it manually:</p>
+            <select id="manual-tag-type">
+                <option value="">Auto-detect (default)</option>
+                <option value="ntag213">NTAG213 (144 bytes)</option>
+                <option value="ntag215">NTAG215 (504 bytes)</option>
+                <option value="ntag216">NTAG216 (888 bytes)</option>
+                <option value="mifare_ultralight">MIFARE Ultralight (144 bytes)</option>
+                <option value="mifare_classic">MIFARE Classic (716 bytes)</option>
+            </select>
+            <button onclick="applyManualTagType()">Apply</button>
+        </div>
+    `;
+    
+    // Add to UI in advanced settings tab
+    const advancedTab = document.getElementById('advanced-tab');
+    if (advancedTab) {
+        const settingsCard = advancedTab.querySelector('.card');
+        if (settingsCard) {
+            const div = document.createElement('div');
+            div.className = 'form-group';
+            div.innerHTML = selectorHTML;
+            settingsCard.appendChild(div);
+        }
+    }
+}
+
+// Apply the manually selected tag type
+function applyManualTagType() {
+    const selector = document.getElementById('manual-tag-type');
+    if (selector) {
+        const selectedType = selector.value;
+        
+        if (selectedType) {
+            // Store in localStorage for persistence
+            localStorage.setItem('manual_tag_type', selectedType);
+            debugLog(`Manual tag type set to: ${selectedType}`, 'info');
+            showStatus(`Tag type manually set to: ${selectedType.toUpperCase()}`);
+            
+            // Refresh memory info if available
+            const memoryInfo = document.getElementById('tag-memory-info');
+            if (memoryInfo && nfcOperationState.lastMessage) {
+                displayTagMemoryInfo(nfcOperationState.lastMessage);
+            }
+        } else {
+            // Clear manual override
+            localStorage.removeItem('manual_tag_type');
+            debugLog('Manual tag type selection cleared', 'info');
+            showStatus('Tag type detection set to automatic');
+        }
+    }
+}
+
 // Initialize the app
 function initApp() {
     // Setup debug mode
@@ -1926,6 +2106,9 @@ function initApp() {
     
     // Initialize settings
     initSettings();
+    
+    // Add tag type selector to advanced settings
+    addTagTypeSelector();
     
     // Check for recovery data from previous failed writes
     checkForRecoveryData();
