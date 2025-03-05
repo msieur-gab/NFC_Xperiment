@@ -123,6 +123,32 @@ function initDebugMode() {
     debugLog("Debug system initialized", 'info');
 }
 
+// Safe NFC reader stop function
+async function safeStopNFC(reader) {
+    if (!reader) return;
+    
+    try {
+        // Different browsers might implement this differently
+        if (typeof reader.stop === 'function') {
+            await reader.stop();
+            debugLog('Stopped NFC reader', 'info');
+        } else if (typeof reader.stopScan === 'function') {
+            // Some implementations use stopScan instead
+            await reader.stopScan();
+            debugLog('Stopped NFC reader using stopScan', 'info');
+        } else {
+            // No stop method available
+            debugLog('No stop method available on this NFC reader implementation', 'warning');
+            // Set to null to allow garbage collection
+            ndef = null;
+        }
+    } catch (error) {
+        debugLog(`Error stopping NFC reader: ${error}`, 'warning');
+        // Set to null even on error to allow garbage collection
+        ndef = null;
+    }
+}
+
 // Initialize settings from localStorage
 function initSettings() {
     const savedSettings = localStorage.getItem('nfc_writer_settings');
@@ -407,12 +433,7 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
     try {
         // Stop existing NFC reader if active
         if (ndef) {
-            try {
-                await ndef.stop();
-                debugLog('Stopped previous NFC reader', 'info');
-            } catch (stopError) {
-                debugLog(`Error stopping previous NFC reader: ${stopError}`, 'warning');
-            }
+            await safeStopNFC(ndef);
         }
         
         // Create new NFC reader
@@ -642,12 +663,7 @@ async function handleTagInUpdateMode(ndef, message, serialNumber) {
         }
         
         // Try to stop the NFC reader
-        try {
-            await ndef.stop();
-            debugLog('Stopped NFC reader after update', 'info');
-        } catch (stopError) {
-            debugLog(`Error stopping NFC reader: ${stopError}`, 'warning');
-        }
+        await safeStopNFC(ndef);
         
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
@@ -666,10 +682,27 @@ async function handleTagInUpdateMode(ndef, message, serialNumber) {
 async function handleTagInReadMode(message, serialNumber) {
     debugLog(`Handling tag in READ mode. Serial: ${serialNumber}`, 'info');
     
+    // Hide scanning animation
     document.getElementById('scanning-animation').style.display = 'none';
     
+    // Check for any active sections before processing
+    const activeSections = document.querySelectorAll('.tag-access-section[style*="display: block"]');
+    if (activeSections.length === 0) {
+        debugLog("No active UI section found before processing tag", 'warning');
+    }
+    
     // Process the message
-    processNFCTag(message);
+    await processNFCTag(message);
+    
+    // Verify that some UI is visible after processing
+    const visibleSections = document.querySelectorAll('.tag-access-section[style*="display: block"]');
+    if (visibleSections.length === 0) {
+        debugLog("ERROR: No UI section visible after processing tag!", 'error');
+        // Force show create UI as fallback
+        switchToCreateNewTagUI();
+    } else {
+        debugLog(`UI section visible after processing: ${visibleSections[0].id}`, 'info');
+    }
     
     // Reset state
     nfcOperationState.mode = 'IDLE';
@@ -745,8 +778,21 @@ async function processNFCTag(message) {
     
     // Check if the tag has any records
     if (!message.records || message.records.length === 0) {
-        debugLog("No records found on tag", 'info');
+        debugLog("No records found on tag - detected empty tag", 'info');
+        showStatus("Empty tag detected - ready to create new tag");
         switchToCreateNewTagUI();
+        
+        // Add a clear message to the UI that this is an empty tag
+        const statusElement = document.getElementById('status-message');
+        statusElement.innerHTML = `
+            <div class="success-notification">
+                <div class="success-icon">✓</div>
+                <div class="success-message">
+                    <h3>Empty Tag Detected</h3>
+                    <p>This tag is empty and ready to be written. Add readers and click "Write to NFC Tag" to initialize it.</p>
+                </div>
+            </div>
+        `;
         return;
     }
     
@@ -754,6 +800,7 @@ async function processNFCTag(message) {
     let hasURLRecord = false;
     let urlTarget = '';
     let isOurFormat = false;
+    let hasUsefulData = false;
     
     // Log all records for debugging
     debugLog(`Found ${message.records.length} records on tag`, 'info');
@@ -768,27 +815,53 @@ async function processNFCTag(message) {
                 const text = textDecoder.decode(record.data);
                 debugLog(`Text record content: ${text.substring(0, 50)}...`, 'info');
                 
-                try {
-                    tagData = JSON.parse(text);
-                    debugLog("Successfully parsed JSON data from tag", 'info');
+                // Check if the text record actually contains data
+                if (text && text.trim().length > 0) {
+                    hasUsefulData = true;
                     
-                    // Check if it's our format
-                    if (tagData && tagData.type === "encrypted_nfc_multi_user") {
-                        isOurFormat = true;
-                        debugLog("Recognized our encrypted format", 'success');
+                    try {
+                        tagData = JSON.parse(text);
+                        debugLog("Successfully parsed JSON data from tag", 'info');
+                        
+                        // Check if it's our format
+                        if (tagData && tagData.type === "encrypted_nfc_multi_user") {
+                            isOurFormat = true;
+                            debugLog("Recognized our encrypted format", 'success');
+                        }
+                    } catch (jsonError) {
+                        debugLog(`Failed to parse JSON: ${jsonError}`, 'warning');
                     }
-                } catch (jsonError) {
-                    debugLog(`Failed to parse JSON: ${jsonError}`, 'warning');
+                } else {
+                    debugLog("Empty text record found", 'warning');
                 }
             } catch (e) {
                 debugLog(`Error decoding text data: ${e}`, 'error');
             }
         } else if (record.recordType === "url") {
-            hasURLRecord = true;
-            const textDecoder = new TextDecoder();
-            urlTarget = textDecoder.decode(record.data);
-            debugLog(`URL record found: ${urlTarget}`, 'info');
+            try {
+                const textDecoder = new TextDecoder();
+                urlTarget = textDecoder.decode(record.data);
+                
+                // Check if the URL actually contains data
+                if (urlTarget && urlTarget.trim().length > 0) {
+                    hasURLRecord = true;
+                    hasUsefulData = true;
+                    debugLog(`URL record found: ${urlTarget}`, 'info');
+                } else {
+                    debugLog("Empty URL record found", 'warning');
+                }
+            } catch (e) {
+                debugLog(`Error decoding URL data: ${e}`, 'error');
+            }
         }
+    }
+    
+    // If the tag has records but they're all empty or corrupted, treat as empty
+    if (!hasUsefulData) {
+        debugLog("Tag has records but no useful data - treating as empty", 'warning');
+        showStatus("Tag appears to be empty or corrupted");
+        switchToCreateNewTagUI();
+        return;
     }
     
     // CASE 1: Tag has our encrypted format
@@ -813,9 +886,9 @@ async function processNFCTag(message) {
         return;
     }
     
-    // CASE 3: Tag appears to be empty or we couldn't read any meaningful data
-    debugLog("Tag appears to be empty", 'info');
-    showStatus("Empty tag detected");
+    // Fallback: If we somehow get here, default to create new tag UI
+    debugLog("Tag format not recognized - defaulting to create new tag UI", 'warning');
+    showStatus("Tag format not recognized");
     switchToCreateNewTagUI();
 }
 
@@ -850,7 +923,457 @@ function switchToTokenEntryUI(tagData) {
     };
 }
 
-// Rest of the code remains the same...
+// Access tag with the provided token
+function accessTag(tagData, token) {
+    debugLog(`Attempting to access tag with token`, 'info');
+    
+    try {
+        // Try to decrypt with provided token
+        const decryptedBytes = CryptoJS.AES.decrypt(tagData.data, token);
+        const decryptedData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+        
+        debugLog("Successfully decrypted tag data", 'success');
+        
+        // If we got here, decryption was successful
+        
+        // Check if this token is the owner token
+        if (decryptedData.owner && decryptedData.owner.token === token) {
+            debugLog("Owner access granted", 'success');
+            showStatus("Owner access granted!");
+            
+            // Switch to tag management UI with owner privileges
+            switchToManageTagUI(decryptedData, token, "owner");
+        } 
+        // Check if this token is a reader token
+        else if (decryptedData.readers && Array.isArray(decryptedData.readers)) {
+            const reader = decryptedData.readers.find(r => r.token === token);
+            
+            if (reader) {
+                debugLog(`Reader "${reader.id}" access granted`, 'success');
+                showStatus(`Reader "${reader.id}" access granted!`);
+                
+                // Switch to tag management UI with reader privileges
+                switchToManageTagUI(decryptedData, token, "reader", reader.id);
+            } else {
+                debugLog("Invalid token - Access denied", 'error');
+                showStatus("Invalid token - Access denied", true);
+            }
+        } else {
+            debugLog("Invalid tag format", 'error');
+            showStatus("Invalid tag format", true);
+        }
+    } catch (error) {
+        debugLog(`Access error: ${error}`, 'error');
+        showStatus("Invalid token or corrupted tag data", true);
+    }
+}
+
+// Switch to UI for managing an existing tag
+function switchToManageTagUI(tagData, token, accessLevel, readerId = null) {
+    debugLog(`Switching to tag management UI with ${accessLevel} access`, 'info');
+    
+    // Hide other UI sections
+    document.getElementById('create-tag-section').style.display = 'none';
+    document.getElementById('token-entry-section').style.display = 'none';
+    
+    // Show manage section
+    const manageSection = document.getElementById('manage-tag-section');
+    manageSection.style.display = 'block';
+    
+    // Update UI based on access level
+    if (accessLevel === "owner") {
+        // Owner can see and modify everything
+        document.getElementById('owner-controls').style.display = 'block';
+        document.getElementById('reader-controls').style.display = 'none';
+        
+        // Show owner info
+        document.getElementById('owner-id').textContent = tagData.owner.id;
+        document.getElementById('owner-token').textContent = tagData.owner.token;
+        
+        // Populate readers list
+        const readersList = document.getElementById('manage-readers-list');
+        readersList.innerHTML = '';
+        
+        if (tagData.readers.length === 0) {
+            readersList.innerHTML = '<p>No readers added to this tag.</p>';
+            debugLog("No readers found on tag", 'info');
+        } else {
+            debugLog(`Displaying ${tagData.readers.length} readers`, 'info');
+            
+            tagData.readers.forEach((reader, index) => {
+                const readerItem = document.createElement('div');
+                readerItem.className = 'reader-item';
+                readerItem.innerHTML = `
+                    <div class="reader-info">
+                        <strong>${reader.id}</strong><br>
+                        <span class="token-display">${reader.token}</span>
+                    </div>
+                    <div class="reader-actions">
+                        <button class="danger" onclick="removeReaderFromTag(${index})">Remove</button>
+                    </div>
+                `;
+                readersList.appendChild(readerItem);
+            });
+        }
+        
+        // Store the current tag data and token for later use
+        manageSection.dataset.tagData = JSON.stringify(tagData);
+        manageSection.dataset.accessToken = token;
+        
+        // Set up add reader button
+        document.getElementById('add-reader-button').onclick = () => addReaderToTag();
+        
+        // Set up save button - Use update mode with owner context
+        document.getElementById('save-changes-button').onclick = () => {
+            debugLog("Save changes button clicked", 'info');
+            
+            const updatedTagData = JSON.parse(manageSection.dataset.tagData);
+            const ownerToken = manageSection.dataset.accessToken;
+            
+            debugLog(`Preparing update operation with ${updatedTagData.readers.length} readers`, 'info');
+            
+            // Start NFC operation in UPDATE mode with context
+            startNFCOperation('UPDATING', {
+                tagData: updatedTagData,
+                ownerToken: ownerToken
+            });
+        };
+    } else if (accessLevel === "reader") {
+        // Reader can only see limited information
+        document.getElementById('owner-controls').style.display = 'none';
+        document.getElementById('reader-controls').style.display = 'block';
+        
+        // Show reader info
+        const reader = tagData.readers.find(r => r.id === readerId);
+        document.getElementById('reader-id').textContent = reader.id;
+        document.getElementById('reader-token').textContent = reader.token;
+        
+        debugLog(`Displaying reader info for "${reader.id}"`, 'info');
+        
+        // No modify capabilities for readers
+    }
+}
+
+// Switch to UI for creating a new tag
+function switchToCreateNewTagUI() {
+    debugLog("Switching to create new tag UI", 'info');
+    
+    // Hide other UI sections
+    document.getElementById('token-entry-section').style.display = 'none';
+    document.getElementById('manage-tag-section').style.display = 'none';
+    
+    // Show create section
+    document.getElementById('create-tag-section').style.display = 'block';
+    
+    // Init with empty readers list
+    readers = [];
+    updateReadersList();
+    
+    // Generate a new owner token
+    generateOwnerToken();
+    
+    // Set up write button - Use write mode
+    document.getElementById('write-tag-button').onclick = () => {
+        debugLog("Write tag button clicked", 'info');
+        startNFCOperation('WRITING');
+    };
+}
+
+// Add a new reader to an existing tag (owner only)
+function addReaderToTag() {
+    debugLog("Adding new reader to tag", 'info');
+    
+    const manageSection = document.getElementById('manage-tag-section');
+    const tagData = JSON.parse(manageSection.dataset.tagData);
+    
+    const readerId = prompt("Enter Reader ID:");
+    if (!readerId) {
+        debugLog("User cancelled reader ID entry", 'info');
+        return;
+    }
+    
+    // Check if reader ID already exists
+    if (tagData.readers.some(r => r.id === readerId)) {
+        debugLog(`Reader "${readerId}" already exists`, 'warning');
+        showStatus(`Reader "${readerId}" already exists`, true);
+        return;
+    }
+    
+    // Generate or enter a token
+    const generateOrEnter = confirm("Click OK to auto-generate a token, or Cancel to enter manually");
+    
+    let readerToken;
+    if (generateOrEnter) {
+        readerToken = generateToken();
+        debugLog(`Generated token for reader "${readerId}"`, 'info');
+    } else {
+        readerToken = prompt("Enter Reader Token:");
+        if (!readerToken) {
+            debugLog("User cancelled reader token entry", 'info');
+            return;
+        }
+        debugLog(`User entered token for reader "${readerId}"`, 'info');
+    }
+    
+    // Add the new reader
+    tagData.readers.push({ id: readerId, token: readerToken });
+    debugLog(`Added reader "${readerId}" to tag data`, 'success');
+    
+    // Update UI
+    manageSection.dataset.tagData = JSON.stringify(tagData);
+    switchToManageTagUI(tagData, manageSection.dataset.accessToken, "owner");
+    
+    // Update operation status to remind user to save changes
+    updateOperationStatus(`Reader "${readerId}" added. Click "Save Changes to Tag" to write to NFC tag.`, true);
+    showStatus(`Reader "${readerId}" added. Click "Save Changes to Tag" to write to NFC tag.`);
+}
+
+// Remove a reader from an existing tag (owner only)
+function removeReaderFromTag(index) {
+    const manageSection = document.getElementById('manage-tag-section');
+    const tagData = JSON.parse(manageSection.dataset.tagData);
+    
+    const confirmRemove = confirm(`Remove reader "${tagData.readers[index].id}"?`);
+    if (confirmRemove) {
+        const removedReaderId = tagData.readers[index].id;
+        tagData.readers.splice(index, 1);
+        
+        debugLog(`Removed reader "${removedReaderId}" from tag data`, 'info');
+        
+        // Update UI
+        manageSection.dataset.tagData = JSON.stringify(tagData);
+        switchToManageTagUI(tagData, manageSection.dataset.accessToken, "owner");
+        
+        // Update operation status to remind user to save changes
+        updateOperationStatus('Reader removed. Click "Save Changes to Tag" to write to NFC tag.', true);
+        showStatus('Reader removed. Click "Save Changes to Tag" to write to NFC tag.');
+    } else {
+        debugLog("User cancelled reader removal", 'info');
+    }
+}
+
+// CONTACTS MANAGEMENT
+
+// Store contacts encrypted with owner's token
+async function storeEncryptedContacts(contacts, ownerToken) {
+    debugLog(`Storing ${contacts.length} contacts encrypted with owner token`, 'info');
+    
+    // Create a contacts object
+    const contactsData = {
+        readers: contacts,
+        timestamp: Date.now()
+    };
+    
+    // Encrypt the entire contacts list with the owner's token
+    const encryptedData = CryptoJS.AES.encrypt(
+        JSON.stringify(contactsData),
+        ownerToken
+    ).toString();
+    
+    // Store in localforage
+    await localforage.setItem('encrypted_contacts', encryptedData);
+    debugLog("Contacts stored successfully", 'success');
+    
+    return true;
+}
+
+// Decrypt contacts using the owner's token
+async function loadEncryptedContacts(ownerToken) {
+    debugLog("Loading encrypted contacts", 'info');
+    
+    try {
+        // Get encrypted data
+        const encryptedData = await localforage.getItem('encrypted_contacts');
+        
+        if (!encryptedData) {
+            debugLog("No stored contacts found", 'info');
+            return { readers: [] };
+        }
+        
+        // Decrypt data
+        const decryptedBytes = CryptoJS.AES.decrypt(encryptedData, ownerToken);
+        const contactsData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
+        
+        debugLog(`Loaded ${contactsData.readers ? contactsData.readers.length : 0} contacts`, 'success');
+        return contactsData;
+    } catch (error) {
+        debugLog(`Failed to decrypt contacts: ${error}`, 'error');
+        showStatus('Failed to decrypt contacts. Is your token correct?', true);
+        return { readers: [] };
+    }
+}
+
+// Unlock contacts with owner token
+async function unlockContacts() {
+    const ownerToken = document.getElementById('contactOwnerToken').value;
+    
+    if (!ownerToken) {
+        showStatus('Owner token is required', true);
+        return;
+    }
+    
+    debugLog("Attempting to unlock contacts", 'info');
+    
+    try {
+        const contactsData = await loadEncryptedContacts(ownerToken);
+        contacts = contactsData.readers || [];
+        currentOwnerToken = ownerToken;
+        
+        // Show contacts container
+        document.getElementById('contacts-container').style.display = 'block';
+        
+        // Update contacts list
+        updateContactsList();
+        
+        debugLog("Contacts unlocked successfully", 'success');
+        showStatus('Contacts unlocked successfully');
+    } catch (error) {
+        debugLog(`Failed to unlock contacts: ${error}`, 'error');
+        showStatus('Failed to unlock contacts', true);
+    }
+}
+
+// Add a new contact
+function addContact() {
+    if (!currentOwnerToken) {
+        showStatus('Please unlock contacts first', true);
+        return;
+    }
+    
+    const contactId = prompt("Enter Contact ID:");
+    if (!contactId) return;
+    
+    // Ask if they want to generate or enter a token
+    const generateOrEnter = confirm("Click OK to auto-generate a token, or Cancel to enter manually");
+    
+    let contactToken;
+    if (generateOrEnter) {
+        contactToken = generateToken();
+    } else {
+        contactToken = prompt("Enter Contact Token:");
+        if (!contactToken) return;
+    }
+    
+    contacts.push({ id: contactId, token: contactToken });
+    updateContactsList();
+    debugLog(`Added contact "${contactId}"`, 'success');
+    showStatus(`Contact "${contactId}" added`);
+}
+
+// Update contacts list in the UI
+function updateContactsList() {
+    const list = document.getElementById('contactsList');
+    list.innerHTML = '';
+    
+    if (contacts.length === 0) {
+        list.innerHTML = '<p>No contacts saved yet.</p>';
+        return;
+    }
+    
+    debugLog(`Displaying ${contacts.length} contacts`, 'info');
+    
+    contacts.forEach((contact, index) => {
+        const contactDiv = document.createElement('div');
+        contactDiv.className = 'reader-item';
+        contactDiv.innerHTML = `
+            <div class="reader-info">
+                <strong>${contact.id}</strong><br>
+                <span class="token-display">${contact.token}</span>
+            </div>
+            <div class="reader-actions">
+                <button onclick="useContact(${index})">Use</button>
+                <button class="danger" onclick="removeContact(${index})">Remove</button>
+            </div>
+        `;
+        list.appendChild(contactDiv);
+    });
+}
+
+// Remove a contact
+function removeContact(index) {
+    const confirmRemove = confirm(`Remove contact "${contacts[index].id}"?`);
+    if (confirmRemove) {
+        const removedId = contacts[index].id;
+        contacts.splice(index, 1);
+        updateContactsList();
+        debugLog(`Removed contact "${removedId}"`, 'info');
+        showStatus('Contact removed');
+    }
+}
+
+// Use a contact in the main interface
+function useContact(index) {
+    const contact = contacts[index];
+    
+    // Check if this contact is already in readers
+    const existingIndex = readers.findIndex(reader => reader.id === contact.id);
+    
+    if (existingIndex !== -1) {
+        readers[existingIndex] = contact; // Update
+        debugLog(`Updated existing reader "${contact.id}" from contacts`, 'info');
+    } else {
+        readers.push(contact); // Add
+        debugLog(`Added "${contact.id}" from contacts to readers`, 'success');
+    }
+    
+    updateReadersList();
+    
+    // Switch to basic tab
+    document.querySelector('.tab[data-tab="basic"]').click();
+    
+    showStatus(`Contact "${contact.id}" added to readers`);
+}
+
+// Save current contacts
+async function saveContacts() {
+    if (!currentOwnerToken) {
+        showStatus('Please unlock contacts first', true);
+        return;
+    }
+    
+    try {
+        debugLog("Saving contacts...", 'info');
+        await storeEncryptedContacts(contacts, currentOwnerToken);
+        debugLog("Contacts saved successfully", 'success');
+        showStatus('Contacts saved successfully');
+    } catch (error) {
+        debugLog(`Error saving contacts: ${error}`, 'error');
+        showStatus('Failed to save contacts', true);
+    }
+}
+
+// Load saved readers into current session
+async function loadSavedReaders() {
+    const ownerToken = document.getElementById('ownerToken').value;
+    
+    if (!ownerToken) {
+        showStatus('Owner token is required', true);
+        return;
+    }
+    
+    try {
+        debugLog("Loading saved readers...", 'info');
+        const contactsData = await loadEncryptedContacts(ownerToken);
+        
+        if (contactsData.readers && contactsData.readers.length > 0) {
+            // Merge with existing readers, avoiding duplicates
+            const existingIds = readers.map(r => r.id);
+            const newReaders = contactsData.readers.filter(r => !existingIds.includes(r.id));
+            
+            readers = [...readers, ...newReaders];
+            updateReadersList();
+            
+            debugLog(`Loaded ${newReaders.length} saved readers`, 'success');
+            showStatus(`Loaded ${newReaders.length} saved readers`);
+        } else {
+            debugLog("No saved readers found", 'info');
+            showStatus('No saved readers found');
+        }
+    } catch (error) {
+        debugLog(`Error loading saved readers: ${error}`, 'error');
+        showStatus('Failed to load saved readers', true);
+    }
+}
 
 // Initialize the app
 function initApp() {
