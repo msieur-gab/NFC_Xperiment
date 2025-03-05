@@ -14,7 +14,8 @@ import {
   switchToCreateNewTagUI,
   switchToTokenEntryUI,
   showSuccessNotification,
-  updateOperationStatus
+  updateOperationStatus,
+  switchToManageTagUI
 } from './ui.js';
 
 // Global NFC reader instance
