@@ -502,38 +502,164 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
 }
 
 // Handle tag in write mode (new tag)
+// async function handleTagInWriteMode(ndef, message, serialNumber) {
+//     debugLog(`Handling tag in WRITE mode. Serial: ${serialNumber}`, 'info');
+    
+//     // Check if the tag has any existing data
+//     let hasAnyData = message.records && message.records.length > 0;
+//     let isOurFormat = false;
+    
+//     if (hasAnyData) {
+//         debugLog(`Tag has ${message.records.length} records`, 'info');
+        
+//         // Check if it matches our format
+//         for (const record of message.records) {
+//             if (record.recordType === "text") {
+//                 try {
+//                     const textDecoder = new TextDecoder();
+//                     const text = textDecoder.decode(record.data);
+//                     debugLog(`Text record: ${text.substring(0, 50)}...`, 'info');
+//                     try {
+//                         const data = JSON.parse(text);
+//                         if (data.type === "encrypted_nfc_multi_user") {
+//                             isOurFormat = true;
+//                             debugLog(`Recognized our tag format`, 'info');
+//                             break;
+//                         }
+//                     } catch (jsonError) {
+//                         debugLog(`Not JSON data: ${jsonError}`, 'warning');
+//                     }
+//                 } catch (e) {
+//                     debugLog(`Error decoding text: ${e}`, 'error');
+//                 }
+//             } else {
+//                 debugLog(`Record type: ${record.recordType}`, 'info');
+//             }
+//         }
+//     } else {
+//         debugLog(`Tag appears to be empty`, 'info');
+//     }
+    
+//     // If it has data, confirm overwrite
+//     if (hasAnyData) {
+//         let confirmMessage = isOurFormat ? 
+//             "This tag already contains encrypted data from this app. Do you want to overwrite it?" :
+//             "This tag contains data in an unknown format. Overwriting will erase all existing data on the tag. Continue?";
+        
+//         debugLog(`Asking for confirmation: ${confirmMessage}`, 'info');
+        
+//         const confirmOverwrite = confirm(confirmMessage);
+//         if (!confirmOverwrite) {
+//             document.getElementById('scanning-animation').style.display = 'none';
+//             showStatus("Writing cancelled - existing data preserved", true);
+//             debugLog("User cancelled writing", 'info');
+//             nfcOperationState.mode = 'IDLE';
+//             return;
+//         }
+//     }
+    
+//     try {
+//         // Show writing animation
+//         const scanningElement = document.getElementById('scanning-animation');
+//         scanningElement.classList.add('writing');
+//         document.querySelector('#scanning-animation p').textContent = 'Writing tag...';
+        
+//         debugLog("About to write tag data", 'info');
+        
+//         await writeTagData(ndef);
+//         document.getElementById('scanning-animation').style.display = 'none';
+        
+//         debugLog("Tag successfully written", 'success');
+        
+//         // Show success notification
+//         const statusElement = document.getElementById('status-message');
+//         statusElement.innerHTML = `
+//             <div class="success-notification">
+//                 <div class="success-icon">✓</div>
+//                 <div class="success-message">
+//                     <h3>Tag Successfully Written!</h3>
+//                     <p>Your NFC tag has been initialized with your settings.</p>
+//                     <p>Owner token: ${document.getElementById('ownerToken').value}</p>
+//                     <p>Number of readers: ${readers.length}</p>
+//                 </div>
+//             </div>
+//         `;
+        
+//         // Make this message stay visible longer (10 seconds)
+//         setTimeout(() => {
+//             if (statusElement.querySelector('.success-notification')) {
+//                 statusElement.innerHTML = '';
+//             }
+//         }, 10000);
+        
+//     } catch (error) {
+//         document.getElementById('scanning-animation').style.display = 'none';
+//         showStatus(`❌ Error writing to tag: ${error}`, true);
+//         debugLog(`Write error: ${error}`, 'error');
+//     }
+    
+//     // Reset state
+//     nfcOperationState.mode = 'IDLE';
+// }
+
+// Handle tag in write mode (new tag)
 async function handleTagInWriteMode(ndef, message, serialNumber) {
     debugLog(`Handling tag in WRITE mode. Serial: ${serialNumber}`, 'info');
     
-    // Check if the tag has any existing data
+    // Check if a write is already in progress
+    if (!isWriting) {
+        debugLog('Write operation cancelled - writing flag not set', 'warning');
+        return;
+    }
+    
+    // Extensive pre-write checks
     let hasAnyData = message.records && message.records.length > 0;
     let isOurFormat = false;
+    let existingTagDetails = {
+        recordCount: 0,
+        recordTypes: [],
+        potentialDataSizes: []
+    };
     
     if (hasAnyData) {
-        debugLog(`Tag has ${message.records.length} records`, 'info');
+        debugLog(`Existing tag has ${message.records.length} records`, 'info');
         
-        // Check if it matches our format
+        // Detailed existing data logging
         for (const record of message.records) {
-            if (record.recordType === "text") {
+            try {
+                // Log record type
+                existingTagDetails.recordCount++;
+                existingTagDetails.recordTypes.push(record.recordType);
+                
+                // Try to get record size
                 try {
+                    const recordSize = new Blob([record.data]).size;
+                    existingTagDetails.potentialDataSizes.push(recordSize);
+                    debugLog(`Record type: ${record.recordType}, Size: ${recordSize} bytes`, 'info');
+                } catch (sizeError) {
+                    debugLog(`Could not calculate record size: ${sizeError}`, 'warning');
+                }
+                
+                // Attempt to decode text records
+                if (record.recordType === "text") {
                     const textDecoder = new TextDecoder();
                     const text = textDecoder.decode(record.data);
-                    debugLog(`Text record: ${text.substring(0, 50)}...`, 'info');
+                    
+                    // Try to parse and log existing data structure
                     try {
-                        const data = JSON.parse(text);
-                        if (data.type === "encrypted_nfc_multi_user") {
+                        const existingData = JSON.parse(text);
+                        debugLog(`Existing record content type: ${existingData.type || 'Unknown'}`, 'info');
+                        
+                        if (existingData.type === "encrypted_nfc_multi_user") {
                             isOurFormat = true;
-                            debugLog(`Recognized our tag format`, 'info');
-                            break;
+                            debugLog('Recognized existing tag format', 'info');
                         }
-                    } catch (jsonError) {
-                        debugLog(`Not JSON data: ${jsonError}`, 'warning');
+                    } catch (parseError) {
+                        debugLog(`Could not parse record content: ${parseError}`, 'warning');
                     }
-                } catch (e) {
-                    debugLog(`Error decoding text: ${e}`, 'error');
                 }
-            } else {
-                debugLog(`Record type: ${record.recordType}`, 'info');
+            } catch (decodeError) {
+                debugLog(`Could not process record: ${decodeError}`, 'warning');
             }
         }
     } else {
@@ -542,9 +668,10 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
     
     // If it has data, confirm overwrite
     if (hasAnyData) {
+        // Prepare confirmation message based on tag contents
         let confirmMessage = isOurFormat ? 
-            "This tag already contains encrypted data from this app. Do you want to overwrite it?" :
-            "This tag contains data in an unknown format. Overwriting will erase all existing data on the tag. Continue?";
+            `This tag already contains encrypted data from this app (${existingTagDetails.recordCount} records). Overwrite?` :
+            `This tag contains ${existingTagDetails.recordCount} records in an unknown format. Overwriting will erase all existing data. Continue?`;
         
         debugLog(`Asking for confirmation: ${confirmMessage}`, 'info');
         
@@ -554,6 +681,7 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
             showStatus("Writing cancelled - existing data preserved", true);
             debugLog("User cancelled writing", 'info');
             nfcOperationState.mode = 'IDLE';
+            isWriting = false;
             return;
         }
     }
@@ -566,10 +694,34 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
         
         debugLog("About to write tag data", 'info');
         
-        await writeTagData(ndef);
+        // Comprehensive write attempt with detailed logging
+        const writeStartTime = Date.now();
+        
+        try {
+            await writeTagData(ndef);
+        } catch (writeError) {
+            // Detailed write error logging
+            debugLog(`Write Error Details:`, 'error');
+            debugLog(`- Error Name: ${writeError.name}`, 'error');
+            debugLog(`- Error Message: ${writeError.message}`, 'error');
+            
+            // Specific error type handling
+            if (writeError.name === 'NotSupportedError') {
+                debugLog('The tag may not support this write operation', 'warning');
+            } else if (writeError.name === 'SecurityError') {
+                debugLog('Security restrictions prevented writing', 'warning');
+            }
+            
+            // Throw to trigger catch block
+            throw writeError;
+        }
+        
+        const writeEndTime = Date.now();
+        const writeDuration = writeEndTime - writeStartTime;
+        
         document.getElementById('scanning-animation').style.display = 'none';
         
-        debugLog("Tag successfully written", 'success');
+        debugLog(`Tag successfully written in ${writeDuration}ms`, 'success');
         
         // Show success notification
         const statusElement = document.getElementById('status-message');
@@ -581,6 +733,7 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
                     <p>Your NFC tag has been initialized with your settings.</p>
                     <p>Owner token: ${document.getElementById('ownerToken').value}</p>
                     <p>Number of readers: ${readers.length}</p>
+                    <p>Write duration: ${writeDuration}ms</p>
                 </div>
             </div>
         `;
@@ -594,12 +747,21 @@ async function handleTagInWriteMode(ndef, message, serialNumber) {
         
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
-        showStatus(`❌ Error writing to tag: ${error}`, true);
-        debugLog(`Write error: ${error}`, 'error');
+        
+        // Comprehensive error handling
+        const errorMessage = `❌ Error writing to tag: ${error.message || error}`;
+        showStatus(errorMessage, true);
+        
+        debugLog(`Write Error: ${error}`, 'error');
+        debugLog(`Existing tag details:`, 'info');
+        debugLog(`- Record Count: ${existingTagDetails.recordCount}`, 'info');
+        debugLog(`- Record Types: ${existingTagDetails.recordTypes.join(', ')}`, 'info');
+        debugLog(`- Potential Data Sizes: ${existingTagDetails.potentialDataSizes.join(', ')} bytes`, 'info');
+    } finally {
+        // Always reset writing state
+        nfcOperationState.mode = 'IDLE';
+        isWriting = false;
     }
-    
-    // Reset state
-    nfcOperationState.mode = 'IDLE';
 }
 
 // Handle tag in update mode (adding readers to existing tag)
@@ -734,6 +896,7 @@ async function handleTagInReadMode(message, serialNumber) {
 }
 
 // Write the tag data using current UI state
+// Enhanced error handling in writeTagData
 async function writeTagData(ndef) {
     const ownerToken = document.getElementById('ownerToken').value;
 
@@ -742,8 +905,6 @@ async function writeTagData(ndef) {
         return;
     }
 
-    debugLog(`Preparing tag data with owner token and ${readers.length} readers`, 'info');
-    
     // Create NFC tag payload
     const nfcPayload = {
         owner: {
@@ -757,42 +918,76 @@ async function writeTagData(ndef) {
         timestamp: Date.now()
     };
     
-    // Encrypt the payload with the owner's token as the key
+    // Encrypt the payload
     const encryptedPayload = CryptoJS.AES.encrypt(
         JSON.stringify(nfcPayload),
         ownerToken
     ).toString();
     
-    // Create a wrapper object
+    // Create wrapper
     const tagData = {
         type: "encrypted_nfc_multi_user",
         version: "1.0",
         data: encryptedPayload
     };
-    
+
     // Get the current URL (without query parameters) to use as the app URL
     const appUrl = window.location.origin + window.location.pathname;
 
-    debugLog("Writing tag data...", 'info');
-    
-    // Write to NFC tag
+    // Prepare write payload
+    const writePayload = {
+        records: [
+            {
+                recordType: "text",
+                data: JSON.stringify(tagData)
+            },
+            {
+                recordType: "url",
+                data: appUrl + "?action=read"
+            }
+        ]
+    };
+
     try {
-        await ndef.write({
-            records: [
-                {
-                    recordType: "text",
-                    data: JSON.stringify(tagData)
-                },
-                {
-                    recordType: "url",
-                    data: appUrl + "?action=read"
-                }
-            ]
-        });
-        debugLog("Write operation completed successfully", 'success');
+        // Log detailed write information before attempting
+        debugLog('Preparing to write NFC tag', 'info');
+        logNFCWriteDetails(writePayload);
+
+        // Attempt to write
+        const writeStartTime = Date.now();
+        
+        try {
+            await ndef.write(writePayload);
+        } catch (writeError) {
+            // Detailed error logging
+            debugLog(`NFC Write Error: ${writeError}`, 'error');
+            
+            // Additional context for common error types
+            if (writeError.name === 'NotSupportedError') {
+                debugLog('Error suggests the tag may not support this write operation', 'warning');
+            } else if (writeError.name === 'SecurityError') {
+                debugLog('Security restrictions prevented writing to the tag', 'warning');
+            } else if (writeError.name === 'AbortError') {
+                debugLog('Write operation was aborted', 'warning');
+            }
+            
+            // Attempt to get more system-level error details
+            if (window.navigator.userAgent) {
+                debugLog(`User Agent: ${window.navigator.userAgent}`, 'info');
+            }
+            
+            throw writeError; // Re-throw to be handled by caller
+        }
+
+        const writeEndTime = Date.now();
+        debugLog(`Tag write completed in ${writeEndTime - writeStartTime}ms`, 'success');
+        
         return true;
     } catch (error) {
-        debugLog(`Write operation failed: ${error}`, 'error');
+        debugLog(`Comprehensive write error: ${error}`, 'error');
+        
+        // Enhanced error feedback
+        showStatus(`❌ Error writing to tag: ${error.message || error}`, true);
         throw error;
     }
 }
@@ -1364,6 +1559,35 @@ async function saveContacts() {
     } catch (error) {
         debugLog(`Error saving contacts: ${error}`, 'error');
         showStatus('Failed to save contacts', true);
+    }
+}
+
+// Enhanced error logging for NFC operations
+function logNFCWriteDetails(payload) {
+    try {
+        // Log payload size
+        const payloadSize = new Blob([JSON.stringify(payload)]).size;
+        debugLog(`Payload details:`, 'info');
+        debugLog(`- Total payload size: ${payloadSize} bytes`, 'info');
+        debugLog(`- Number of records: ${payload.records ? payload.records.length : 'N/A'}`, 'info');
+        
+        // Log record details if available
+        if (payload.records) {
+            payload.records.forEach((record, index) => {
+                debugLog(`Record ${index + 1}:`, 'info');
+                debugLog(`- Type: ${record.recordType}`, 'info');
+                
+                // Try to get record size
+                try {
+                    const recordSize = new Blob([record.data]).size;
+                    debugLog(`- Size: ${recordSize} bytes`, 'info');
+                } catch (sizeError) {
+                    debugLog(`- Size calculation error: ${sizeError}`, 'warning');
+                }
+            });
+        }
+    } catch (logError) {
+        debugLog(`Error logging write details: ${logError}`, 'error');
     }
 }
 
