@@ -701,36 +701,126 @@ async function writeTagData(ndef) {
     const readerRecords = readers.map(reader => createReaderRecord(reader, ownerToken));
     records.push(...readerRecords);
 
+    // Store original data for verification
+    const originalData = {
+        ownerToken: ownerToken,
+        readers: [...readers]
+    };
+
     // Log payload details for debugging
     debugLog('Preparing to write NFC tag', 'info');
     debugLog(`Total records: ${records.length}`, 'info');
-    records.forEach((record, index) => {
-        try {
-            const recordSize = new Blob([record.data]).size;
-            debugLog(`Record ${index + 1}: Type ${record.recordType}, Size ${recordSize} bytes`, 'info');
-        } catch (sizeError) {
-            debugLog(`Could not calculate record ${index + 1} size`, 'warning');
-        }
-    });
-
+    
     try {
+        // Set a flag to indicate writing is in progress
+        isWriting = true;
+        showStatus('<span class="write-mode">WRITING...</span> Writing data to tag');
+        
         // Attempt to write all records
         const writeStartTime = Date.now();
-        
         await ndef.write({ records });
-
         const writeEndTime = Date.now();
+        
         debugLog(`Tag write completed in ${writeEndTime - writeStartTime}ms`, 'success');
         
-        return true;
+        // Verify the write was successful by reading back the tag
+        debugLog('Verifying tag data...', 'info');
+        showStatus('<span class="write-mode">VERIFYING...</span> Checking tag data');
+        
+        // Add a small delay to ensure the tag is ready to be read again
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        // Try to read the tag to verify
+        try {
+            // We'll use a new promise to handle the reading with a timeout
+            const verificationResult = await Promise.race([
+                new Promise((resolve, reject) => {
+                    // Set up a one-time reading event handler
+                    const verifyHandler = ({ message }) => {
+                        ndef.removeEventListener('reading', verifyHandler);
+                        resolve(message);
+                    };
+                    
+                    ndef.addEventListener('reading', verifyHandler, { once: true });
+                }),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Verification timeout')), 3000)
+                )
+            ]);
+            
+            // If we get here, we successfully read the tag
+            debugLog('Tag data verified successfully', 'success');
+            showStatus('✅ Tag written and verified successfully!');
+            
+            // Reset writing flag
+            isWriting = false;
+            return true;
+            
+        } catch (verifyError) {
+            // Verification failed
+            debugLog(`Tag verification failed: ${verifyError}`, 'error');
+            showStatus('⚠️ Tag was written but verification failed. Data may be incomplete.', true);
+            
+            // Show recovery options to the user
+            const recoveryMessage = `
+                <div class="error-notification">
+                    <div class="error-icon">!</div>
+                    <div class="error-message">
+                        <h3>Verification Failed</h3>
+                        <p>The tag was written but we couldn't verify the data.</p>
+                        <p>Your data is still saved in this browser session.</p>
+                        <button onclick="retryTagWrite()">Try Writing Again</button>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('status-message').innerHTML = recoveryMessage;
+            
+            // Reset writing flag
+            isWriting = false;
+            return false;
+        }
+        
     } catch (error) {
+        // Write operation failed
         debugLog(`Comprehensive write error: ${error}`, 'error');
         
-        // Enhanced error feedback
-        showStatus(`❌ Error writing to tag: ${error.message || error}`, true);
-        throw error;
+        // Enhanced error feedback with recovery options
+        const errorMessage = `
+            <div class="error-notification">
+                <div class="error-icon">!</div>
+                <div class="error-message">
+                    <h3>Write Failed</h3>
+                    <p>Error: ${error.message || error}</p>
+                    <p>Your data is still saved in this browser session.</p>
+                    <button onclick="retryTagWrite()">Try Again</button>
+                </div>
+            </div>
+        `;
+        
+        document.getElementById('status-message').innerHTML = errorMessage;
+        
+        // Reset writing flag
+        isWriting = false;
+        return false;
     }
 }
+
+// Function to retry writing to tag
+function retryTagWrite() {
+    debugLog('User requested to retry tag write', 'info');
+    startNFCOperation('WRITING');
+}
+
+// Add a window event handler to warn about leaving during write
+window.addEventListener('beforeunload', (event) => {
+    if (isWriting) {
+        // This will show a browser confirmation dialog
+        event.preventDefault();
+        event.returnValue = 'Writing to NFC tag in progress. Leaving now may corrupt your tag data. Are you sure?';
+        return event.returnValue;
+    }
+});
 
 // Handle tag in write mode (new tag)
 async function handleTagInWriteMode(ndef, message, serialNumber) {
