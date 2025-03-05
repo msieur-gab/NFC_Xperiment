@@ -1,7 +1,5 @@
 // App state
 let readers = [];
-let contacts = [];
-let currentOwnerToken = null;
 let settings = {
     tokenFormat: 'readable',
     tokenLength: '12'
@@ -220,25 +218,44 @@ function resetSettings() {
 // Tab functionality
 function setupTabs() {
     const tabs = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
+    
+    // Hide all tab contents initially
+    tabContents.forEach(content => {
+        content.style.display = 'none';
+    });
+    
+    // Show the first tab (Basic Mode)
+    document.getElementById('basic-tab').style.display = 'block';
+    
+    // Add click handlers to tabs
     tabs.forEach(tab => {
-        tab.addEventListener('click', () => {
+        tab.addEventListener('click', function() {
+            // Remove active class from all tabs
             tabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
             
-            const tabContents = document.querySelectorAll('.tab-content');
-            tabContents.forEach(content => content.classList.remove('active'));
+            // Add active class to clicked tab
+            this.classList.add('active');
             
-            const tabName = tab.getAttribute('data-tab');
-            const tabContent = document.getElementById(`${tabName}-tab`);
-            if (tabContent) {
-                tabContent.classList.add('active');
-            }
+            // Hide all tab contents
+            tabContents.forEach(content => {
+                content.style.display = 'none';
+            });
             
-            // Handle basic mode tab separately since it doesn't follow the same pattern
+            // Show the corresponding tab content
+            const tabName = this.getAttribute('data-tab');
             if (tabName === 'basic') {
-                // Just show whichever tag access section is currently active
-                // This preserves the state of the basic mode view
+                // Basic tab shows either create or manage UI based on current state
+                if (document.getElementById('manage-tag-section').style.display === 'block') {
+                    // Keep manage UI visible if it's active
+                } else {
+                    // Otherwise show create UI
+                    document.getElementById('create-tag-section').style.display = 'block';
+                }
+            } else if (tabName === 'advanced') {
+                document.getElementById('advanced-tab').style.display = 'block';
             }
+            // Removed contacts tab handling
         });
     });
 }
@@ -1418,227 +1435,11 @@ function removeReaderFromTag(index) {
     }
 }
 
-// CONTACTS MANAGEMENT
-
-// Store contacts encrypted with owner's token
-async function storeEncryptedContacts(contacts, ownerToken) {
-    debugLog(`Storing ${contacts.length} contacts encrypted with owner token`, 'info');
-    
-    // Create a contacts object
-    const contactsData = {
-        readers: contacts,
-        timestamp: Date.now()
-    };
-    
-    // Encrypt the entire contacts list with the owner's token
-    const encryptedData = CryptoJS.AES.encrypt(
-        JSON.stringify(contactsData),
-        ownerToken
-    ).toString();
-    
-    // Store in localforage
-    await localforage.setItem('encrypted_contacts', encryptedData);
-    debugLog("Contacts stored successfully", 'success');
-    
-    return true;
-}
-
-// Decrypt contacts using the owner's token
-async function loadEncryptedContacts(ownerToken) {
-    debugLog("Loading encrypted contacts", 'info');
-    
-    try {
-        // Get encrypted data
-        const encryptedData = await localforage.getItem('encrypted_contacts');
-        
-        if (!encryptedData) {
-            debugLog("No stored contacts found", 'info');
-            return { readers: [] };
-        }
-        
-        // Decrypt data
-        const decryptedBytes = CryptoJS.AES.decrypt(encryptedData, ownerToken);
-        const contactsData = JSON.parse(decryptedBytes.toString(CryptoJS.enc.Utf8));
-        
-        debugLog(`Loaded ${contactsData.readers ? contactsData.readers.length : 0} contacts`, 'success');
-        return contactsData;
-    } catch (error) {
-        debugLog(`Failed to decrypt contacts: ${error}`, 'error');
-        showStatus('Failed to decrypt contacts. Is your token correct?', true);
-        return { readers: [] };
-    }
-}
-
-// Unlock contacts with owner token
-async function unlockContacts() {
-    const ownerToken = document.getElementById('contactOwnerToken').value;
-    
-    if (!ownerToken) {
-        showStatus('Owner token is required', true);
-        return;
-    }
-    
-    debugLog("Attempting to unlock contacts", 'info');
-    
-    try {
-        const contactsData = await loadEncryptedContacts(ownerToken);
-        contacts = contactsData.readers || [];
-        currentOwnerToken = ownerToken;
-        
-        // Show contacts container
-        document.getElementById('contacts-container').style.display = 'block';
-        
-        // Update contacts list
-        updateContactsList();
-        
-        debugLog("Contacts unlocked successfully", 'success');
-        showStatus('Contacts unlocked successfully');
-    } catch (error) {
-        debugLog(`Failed to unlock contacts: ${error}`, 'error');
-        showStatus('Failed to unlock contacts', true);
-    }
-}
-
-// Add a new contact
-function addContact() {
-    if (!currentOwnerToken) {
-        showStatus('Please unlock contacts first', true);
-        return;
-    }
-    
-    const contactId = prompt("Enter Contact ID:");
-    if (!contactId) return;
-    
-    // Ask if they want to generate or enter a token
-    const generateOrEnter = confirm("Click OK to auto-generate a token, or Cancel to enter manually");
-    
-    let contactToken;
-    if (generateOrEnter) {
-        contactToken = generateToken();
-    } else {
-        contactToken = prompt("Enter Contact Token:");
-        if (!contactToken) return;
-    }
-    
-    contacts.push({ id: contactId, token: contactToken });
-    updateContactsList();
-    debugLog(`Added contact "${contactId}"`, 'success');
-    showStatus(`Contact "${contactId}" added`);
-}
-
-// Update contacts list in the UI
-function updateContactsList() {
-    const list = document.getElementById('contactsList');
-    list.innerHTML = '';
-    
-    if (contacts.length === 0) {
-        list.innerHTML = '<p>No contacts saved yet.</p>';
-        return;
-    }
-    
-    debugLog(`Displaying ${contacts.length} contacts`, 'info');
-    
-    contacts.forEach((contact, index) => {
-        const contactDiv = document.createElement('div');
-        contactDiv.className = 'reader-item';
-        contactDiv.innerHTML = `
-            <div class="reader-info">
-                <strong>${contact.id}</strong><br>
-                <span class="token-display">${contact.token}</span>
-            </div>
-            <div class="reader-actions">
-                <button onclick="useContact(${index})">Use</button>
-                <button class="danger" onclick="removeContact(${index})">Remove</button>
-            </div>
-        `;
-        list.appendChild(contactDiv);
-    });
-}
-
-// Remove a contact
-function removeContact(index) {
-    const confirmRemove = confirm(`Remove contact "${contacts[index].id}"?`);
-    if (confirmRemove) {
-        const removedId = contacts[index].id;
-        contacts.splice(index, 1);
-        updateContactsList();
-        debugLog(`Removed contact "${removedId}"`, 'info');
-        showStatus('Contact removed');
-    }
-}
-
-// Use a contact in the main interface
-function useContact(index) {
-    const contact = contacts[index];
-    
-    // Check if this contact is already in readers
-    const existingIndex = readers.findIndex(reader => reader.id === contact.id);
-    
-    if (existingIndex !== -1) {
-        readers[existingIndex] = contact; // Update
-        debugLog(`Updated existing reader "${contact.id}" from contacts`, 'info');
-    } else {
-        readers.push(contact); // Add
-        debugLog(`Added "${contact.id}" from contacts to readers`, 'success');
-    }
-    
-    updateReadersList();
-    
-    // Switch to basic tab
-    document.querySelector('.tab[data-tab="basic"]').click();
-    
-    showStatus(`Contact "${contact.id}" added to readers`);
-}
-
-// Save current contacts
-async function saveContacts() {
-    if (!currentOwnerToken) {
-        showStatus('Please unlock contacts first', true);
-        return;
-    }
-    
-    try {
-        debugLog("Saving contacts...", 'info');
-        await storeEncryptedContacts(contacts, currentOwnerToken);
-        debugLog("Contacts saved successfully", 'success');
-        showStatus('Contacts saved successfully');
-    } catch (error) {
-        debugLog(`Error saving contacts: ${error}`, 'error');
-        showStatus('Failed to save contacts', true);
-    }
-}
-
-// Load saved readers into current session
+// Modify loadSavedReaders() to not use contacts
 async function loadSavedReaders() {
-    const ownerToken = document.getElementById('ownerToken').value;
-    
-    if (!ownerToken) {
-        showStatus('Owner token is required', true);
-        return;
-    }
-    
-    try {
-        debugLog("Loading saved readers...", 'info');
-        const contactsData = await loadEncryptedContacts(ownerToken);
-        
-        if (contactsData.readers && contactsData.readers.length > 0) {
-            // Merge with existing readers, avoiding duplicates
-            const existingIds = readers.map(r => r.id);
-            const newReaders = contactsData.readers.filter(r => !existingIds.includes(r.id));
-            
-            readers = [...readers, ...newReaders];
-            updateReadersList();
-            
-            debugLog(`Loaded ${newReaders.length} saved readers`, 'success');
-            showStatus(`Loaded ${newReaders.length} saved readers`);
-        } else {
-            debugLog("No saved readers found", 'info');
-            showStatus('No saved readers found');
-        }
-    } catch (error) {
-        debugLog(`Error loading saved readers: ${error}`, 'error');
-        showStatus('Failed to load saved readers', true);
-    }
+    // This function should be simplified or removed if it only worked with contacts
+    showStatus('This feature has been removed', true);
+    return;
 }
 
 // Initialize the app
