@@ -77,6 +77,11 @@ button:hover, button:focus {
     background-color: var(--primary-dark);
 }
 
+button.small {
+    padding: 4px 8px;
+    font-size: 0.8rem;
+}
+
 button.secondary {
     background-color: var(--light-gray);
     color: #1f2937;
@@ -347,4 +352,107 @@ button.danger:hover, button.danger:focus {
 
 .scanning-animation.writing p {
     color: var(--success);
+}
+
+/* Operation status indicator */
+.operation-status {
+    margin-top: 20px;
+    min-height: 40px;
+}
+
+/* Debug panel styles */
+.debug-panel {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    max-width: 800px;
+    margin: 0 auto;
+    background-color: #1f2937;
+    color: #e5e7eb;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    box-shadow: 0 -2px 10px rgba(0,0,0,0.1);
+    z-index: 1000;
+    display: none;
+    max-height: 40vh;
+    transition: all 0.3s ease;
+}
+
+.debug-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 15px;
+    background-color: #111827;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+}
+
+.debug-header h3 {
+    color: #e5e7eb;
+    margin: 0;
+    font-size: 1rem;
+}
+
+.debug-console {
+    padding: 10px 15px;
+    overflow-y: auto;
+    max-height: calc(40vh - 40px);
+    font-family: monospace;
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.debug-log {
+    margin-bottom: 6px;
+    word-break: break-word;
+}
+
+.debug-log-info {
+    color: #93c5fd;
+}
+
+.debug-log-error {
+    color: #f87171;
+}
+
+.debug-log-warning {
+    color: #fbbf24;
+}
+
+.debug-log-success {
+    color: #6ee7b7;
+}
+
+.debug-log-time {
+    color: #9ca3af;
+    font-size: 0.75rem;
+    margin-right: 6px;
+}
+
+.debug-controls {
+    display: flex;
+    gap: 8px;
+}
+
+/* Debug toggle switch styles */
+.debug-toggle {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 10px;
+    align-items: center;
+}
+
+.debug-toggle label {
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    font-size: 0.875rem;
+    user-select: none;
+}
+
+.debug-toggle input[type="checkbox"] {
+    width: auto;
+    margin-right: 6px;
 }
