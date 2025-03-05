@@ -180,8 +180,22 @@ export const CompactCrypto = {
    */
   async decrypt(encryptedData, password) {
     try {
+      debugLog(`Attempting to decrypt data with token length: ${password ? password.length : 0}`, 'info');
+      
+      if (!encryptedData) {
+        debugLog('Decrypt failed: No encrypted data provided', 'error');
+        throw new Error('No encrypted data provided');
+      }
+      
+      if (!password) {
+        debugLog('Decrypt failed: No password/token provided', 'error');
+        throw new Error('No password/token provided');
+      }
+      
       // Try to decrypt with Web Crypto first
       try {
+        debugLog('Attempting Web Crypto decryption...', 'info');
+        
         // Convert from base64url
         const encryptedBytes = this.base64urlToBytes(encryptedData);
         
@@ -214,23 +228,27 @@ export const CompactCrypto = {
         );
         
         // Convert to string
-        return this.bytesToStr(new Uint8Array(decrypted));
+        const result = this.bytesToStr(new Uint8Array(decrypted));
+        debugLog('Web Crypto decryption successful', 'success');
+        return result;
       } catch (webCryptoError) {
         // If that fails, try CryptoJS
-        console.warn("Web Crypto decryption failed, trying CryptoJS", webCryptoError);
+        debugLog(`Web Crypto decryption failed: ${webCryptoError}. Trying CryptoJS...`, 'warning');
         
         // Use CryptoJS for decryption
         const decryptedBytes = CryptoJS.AES.decrypt(encryptedData, password);
         const decryptedText = decryptedBytes.toString(CryptoJS.enc.Utf8);
         
         if (!decryptedText) {
+          debugLog('CryptoJS decryption produced empty result', 'error');
           throw new Error("Decryption produced empty result");
         }
         
+        debugLog('CryptoJS decryption successful', 'success');
         return decryptedText;
       }
     } catch (error) {
-      console.error("Decryption error:", error);
+      debugLog(`Decryption error: ${error}`, 'error');
       throw new Error("Failed to decrypt data: " + error.message);
     }
   }
@@ -243,6 +261,15 @@ export const CompactCrypto = {
  * @returns {Promise<Object>} - Encrypted compact object ready for tag
  */
 export async function encryptTagData(ownerToken, readers) {
+  // Debug logging
+  if (!ownerToken) {
+    throw new Error("Owner token is required for encryption");
+  }
+  
+  if (!readers || !Array.isArray(readers)) {
+    throw new Error("Readers must be an array");
+  }
+  
   // Create compact data structure with short property names
   const tagData = {
     o: ownerToken, // owner token
@@ -256,17 +283,19 @@ export async function encryptTagData(ownerToken, readers) {
   // Compact JSON representation
   const jsonStr = JSON.stringify(tagData);
   
-  // Optional compression step could be added here
-  // const compressedStr = LZString.compressToUTF16(jsonStr);
-  
-  // Encrypt with our compact crypto
-  const encryptedData = await CompactCrypto.encrypt(jsonStr, ownerToken);
-  
-  // Create very compact wrapper structure
-  return {
-    v: "1", // version
-    d: encryptedData // encrypted data
-  };
+  try {
+    // Encrypt with our compact crypto
+    const encryptedData = await CompactCrypto.encrypt(jsonStr, ownerToken);
+    
+    // Create very compact wrapper structure
+    return {
+      v: "1", // version
+      d: encryptedData // encrypted data
+    };
+  } catch (error) {
+    console.error("Encryption error:", error);
+    throw new Error("Failed to encrypt tag data: " + error.message);
+  }
 }
 
 /**

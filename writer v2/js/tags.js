@@ -496,15 +496,28 @@ export async function writeCompactTagData(ndef) {
   const ownerToken = document.getElementById('ownerToken').value;
   if (!ownerToken) {
     showStatus('Owner token is required', true);
+    debugLog('Write failed: Owner token is empty', 'error');
     return false;
   }
+
+  debugLog(`Using owner token: ${ownerToken.substring(0, 3)}...${ownerToken.substring(ownerToken.length-3)}`, 'info');
+  debugLog(`Number of readers to write: ${AppState.readers.length}`, 'info');
 
   try {
     // Get the current URL (without query parameters) to use as the app URL
     const appUrl = window.location.origin + window.location.pathname;
     
     // Create compact encrypted tag data
-    const encryptedObj = await encryptTagData(ownerToken, AppState.readers);
+    debugLog('Starting tag data encryption...', 'info');
+    let encryptedObj;
+    try {
+      encryptedObj = await encryptTagData(ownerToken, AppState.readers);
+      debugLog('Tag data encryption successful', 'success');
+    } catch (encryptError) {
+      debugLog(`Encryption error: ${encryptError}`, 'error');
+      showStatus(`Encryption error: ${encryptError.message || encryptError}`, true);
+      return false;
+    }
     
     // Save data to local storage as backup before writing
     try {
@@ -538,18 +551,29 @@ export async function writeCompactTagData(ndef) {
     debugLog('Preparing to write NFC tag with compact format', 'info');
     debugLog(`Total records: ${records.length}`, 'info');
     debugLog(`Encrypted data size: ${JSON.stringify(encryptedObj).length} bytes`, 'info');
+    debugLog(`URL record: ${appUrl + "?action=read"}`, 'info');
     
     // Write the records
     const writeStartTime = Date.now();
-    await ndef.write({ records });
-    const writeEndTime = Date.now();
-    
-    debugLog(`Tag write completed in ${writeEndTime - writeStartTime}ms`, 'success');
-    
-    // Clear the backup after successful write
-    await localforage.removeItem('last_write_attempt');
-    
-    return true;
+    try {
+      await ndef.write({ records });
+      const writeEndTime = Date.now();
+      debugLog(`Tag write completed in ${writeEndTime - writeStartTime}ms`, 'success');
+      
+      // Clear the backup after successful write
+      await localforage.removeItem('last_write_attempt');
+      return true;
+    } catch (writeError) {
+      debugLog(`Write error details: ${writeError.name}: ${writeError.message}`, 'error');
+      if (writeError.name === 'NotAllowedError') {
+        showStatus('Write permission denied. Make sure the tag is writable and properly positioned.', true);
+      } else if (writeError.name === 'NotSupportedError') {
+        showStatus('This tag type may not support writing or has insufficient memory.', true);
+      } else {
+        showStatus(`Error writing to tag: ${writeError.message || writeError}. Your data is saved locally.`, true);
+      }
+      throw writeError;
+    }
   } catch (error) {
     debugLog(`Comprehensive write error: ${error}`, 'error');
     
