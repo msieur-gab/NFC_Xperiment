@@ -223,11 +223,30 @@ async function handleNFCTag(isWriteMode = false) {
     
     try {
         const ndef = new NDEFReader();
+        
+        // Clear any previous event listeners to prevent duplicates
+        ndef.onreading = null;
+        
         await ndef.scan();
         
         // If we're in write mode, we'll handle the write when the tag is detected
         if (isWriteMode) {
-            ndef.addEventListener("reading", async () => {
+            ndef.addEventListener("reading", async ({ message, serialNumber }) => {
+                console.log(`Tag detected in write mode. Serial: ${serialNumber}`);
+                
+                // Check if the tag already has data
+                const hasExistingData = await checkTagHasData(message);
+                
+                if (hasExistingData) {
+                    // Ask for confirmation before overwriting
+                    const confirmOverwrite = confirm("This tag already contains data. Do you want to overwrite it?");
+                    if (!confirmOverwrite) {
+                        document.getElementById('scanning-animation').style.display = 'none';
+                        showStatus("Writing cancelled - existing data preserved", true);
+                        return;
+                    }
+                }
+                
                 try {
                     await writeTagData();
                     document.getElementById('scanning-animation').style.display = 'none';
@@ -241,7 +260,8 @@ async function handleNFCTag(isWriteMode = false) {
         }
         
         // Otherwise we're in read mode
-        ndef.addEventListener("reading", ({ message }) => {
+        ndef.addEventListener("reading", ({ message, serialNumber }) => {
+            console.log(`Tag detected in read mode. Serial: ${serialNumber}`);
             document.getElementById('scanning-animation').style.display = 'none';
             
             // Process the message
@@ -250,51 +270,96 @@ async function handleNFCTag(isWriteMode = false) {
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
         showStatus(`Error with NFC: ${error}`, true);
+        console.error("NFC error:", error);
     }
+}
+
+// Check if tag has data
+async function checkTagHasData(message) {
+    if (!message.records || message.records.length === 0) {
+        return false;
+    }
+    
+    for (const record of message.records) {
+        if (record.recordType === "text" || record.recordType === "url") {
+            return true;
+        }
+    }
+    
+    return false;
 }
 
 // Process an NFC tag and determine the correct UI to show
 async function processNFCTag(message) {
+    console.log("Processing NFC tag message:", message);
+    
+    // Check if the tag has any records
+    if (!message.records || message.records.length === 0) {
+        console.log("No records found on tag");
+        switchToCreateNewTagUI();
+        return;
+    }
+    
     let tagData = null;
     let hasURLRecord = false;
     let urlTarget = '';
     
+    // Log all records for debugging
+    console.log(`Found ${message.records.length} records on tag`);
+    
     // Examine all records on the tag
     for (const record of message.records) {
+        console.log("Record type:", record.recordType);
+        
         if (record.recordType === "text") {
             try {
                 const textDecoder = new TextDecoder();
                 const text = textDecoder.decode(record.data);
-                tagData = JSON.parse(text);
+                console.log("Text record content:", text.substring(0, 50) + "...");
+                
+                try {
+                    tagData = JSON.parse(text);
+                    console.log("Successfully parsed JSON data from tag");
+                } catch (jsonError) {
+                    console.error("Failed to parse JSON:", jsonError);
+                }
             } catch (e) {
-                console.error("Error parsing tag data", e);
+                console.error("Error decoding text data:", e);
             }
         } else if (record.recordType === "url") {
             hasURLRecord = true;
             const textDecoder = new TextDecoder();
             urlTarget = textDecoder.decode(record.data);
+            console.log("URL record found:", urlTarget);
         }
     }
     
     // CASE 1: Tag has our encrypted format
     if (tagData && tagData.type === "encrypted_nfc_multi_user") {
+        console.log("Recognized our encrypted format");
+        showStatus("Encrypted tag detected");
+        
         // Show token entry UI
         switchToTokenEntryUI(tagData);
         return;
     }
     
-    // CASE 2: Tag is empty or has unknown data
-    if (!tagData || !hasURLRecord) {
-        // Switch to create new tag UI
-        switchToCreateNewTagUI();
+    // CASE 2: Tag has some data but not our format
+    if (tagData || hasURLRecord) {
+        console.log("Tag has data but not in our format");
+        showStatus("Found tag with existing data", true);
+        
+        // Show confirmation dialog with more information
+        if (confirm("This tag contains data in a format that is not recognized by this app. Would you like to overwrite it? (This will erase any existing data on the tag)")) {
+            switchToCreateNewTagUI();
+        }
         return;
     }
     
-    // CASE 3: Tag has other data (not our format)
-    showStatus("Found tag with unrecognized data format", true);
-    if (confirm("This tag contains data in an unknown format. Would you like to overwrite it?")) {
-        switchToCreateNewTagUI();
-    }
+    // CASE 3: Tag appears to be empty or we couldn't read any meaningful data
+    console.log("Tag appears to be empty");
+    showStatus("Empty tag detected");
+    switchToCreateNewTagUI();
 }
 
 // Switch to token entry UI for existing encrypted tags
