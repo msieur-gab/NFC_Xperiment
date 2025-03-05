@@ -429,13 +429,6 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
     }
     
     debugLog(`Starting NFC operation: ${operation}`, 'info');
-    if (contextData) {
-        debugLog(`Operation context: ${JSON.stringify({
-            hasTagData: !!contextData.tagData,
-            hasOwnerToken: !!contextData.ownerToken,
-            readerCount: contextData.tagData ? contextData.tagData.readers.length : 0
-        })}`, 'info');
-    }
     
     // Show scanning animation with appropriate instructions
     const scanningElement = document.getElementById('scanning-animation');
@@ -489,20 +482,128 @@ async function startNFCOperation(operation = 'READ', contextData = null) {
         // Log error events
         ndef.addEventListener("error", (error) => {
             debugLog(`NFC error: ${error}`, 'error');
+            showStatus(`NFC error: ${error.message || error}`, true);
         });
         
+        // Show permission request message before scanning
+        showStatus('Requesting NFC permission...', false);
+        
         // Start scanning
-        await ndef.scan();
-        debugLog('NFC scanning started', 'info');
+        try {
+            await ndef.scan();
+            debugLog('NFC scanning started', 'info');
+            showStatus(`<span class="${operation === 'READING' ? 'read-mode' : 'write-mode'}">${operation} MODE</span> Place tag against your device`);
+        } catch (scanError) {
+            // Handle permission denied specifically
+            if (scanError.name === 'NotAllowedError') {
+                document.getElementById('scanning-animation').style.display = 'none';
+                
+                // Show a more helpful error message with instructions
+                const permissionMessage = `
+                    <div class="error-notification">
+                        <div class="error-icon">!</div>
+                        <div class="error-message">
+                            <h3>NFC Permission Required</h3>
+                            <p>This app needs permission to use your device's NFC reader.</p>
+                            <p>Please check:</p>
+                            <ul>
+                                <li>NFC is enabled in your device settings</li>
+                                <li>You've allowed this site to use NFC</li>
+                                <li>You're using a supported browser (Chrome for Android)</li>
+                            </ul>
+                            <button onclick="requestNFCPermission()">Try Again</button>
+                        </div>
+                    </div>
+                `;
+                
+                const statusElement = document.getElementById('status-message');
+                statusElement.innerHTML = permissionMessage;
+                
+                debugLog('NFC permission denied by user or system', 'error');
+                throw scanError;
+            } else {
+                // Re-throw other errors to be caught by the outer catch
+                throw scanError;
+            }
+        }
         
     } catch (error) {
         document.getElementById('scanning-animation').style.display = 'none';
-        showStatus(`Error with NFC: ${error}`, true);
+        
+        if (error.name !== 'NotAllowedError') {
+            // Only show generic error for non-permission errors (permission has its own UI)
+            showStatus(`Error with NFC: ${error.message || error}`, true);
+        }
+        
         debugLog(`NFC initialization error: ${error}`, 'error');
         // Reset state on error
         nfcOperationState.mode = 'IDLE';
     }
 }
+
+// Function to request NFC permission again
+function requestNFCPermission() {
+    debugLog('User requested to try NFC permission again', 'info');
+    
+    // Clear previous error message
+    document.getElementById('status-message').innerHTML = '';
+    
+    // Try to start NFC operation again
+    startNFCOperation(nfcOperationState.mode || 'READING');
+}
+
+// Add CSS for error notification
+document.head.insertAdjacentHTML('beforeend', `
+<style>
+.error-notification {
+    display: flex;
+    background-color: #fef2f2;
+    border: 1px solid #ef4444;
+    border-radius: 8px;
+    padding: 15px;
+    margin: 15px 0;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+}
+
+.error-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    background-color: #ef4444;
+    border-radius: 50%;
+    color: white;
+    font-size: 20px;
+    font-weight: bold;
+    margin-right: 15px;
+    flex-shrink: 0;
+}
+
+.error-message {
+    flex: 1;
+}
+
+.error-message h3 {
+    margin: 0 0 5px 0;
+    color: #ef4444;
+}
+
+.error-message p {
+    margin: 0 0 10px 0;
+    color: #374151;
+}
+
+.error-message ul {
+    margin: 0 0 15px 0;
+    padding-left: 20px;
+}
+
+.error-message li {
+    margin-bottom: 5px;
+}
+</style>
+`);
 
 // Utility function to create a record for a reader
 function createReaderRecord(reader) {
