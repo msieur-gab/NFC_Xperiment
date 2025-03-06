@@ -40,62 +40,106 @@ class PinInput extends HTMLElement {
   
   clear() {
     this.value = '';
-    this.shadowRoot.querySelector('.pin-digit').focus();
+    const firstInput = this.shadowRoot.querySelector('.pin-digit');
+    if (firstInput) firstInput.focus();
   }
   
   _setupEventListeners() {
     const inputs = this.shadowRoot.querySelectorAll('.pin-digit');
     
     inputs.forEach((input, index) => {
-      input.addEventListener('keydown', (e) => {
-        if (/^[0-9]$/.test(e.key)) {
-          // Clear the input and allow the new digit
-          setTimeout(() => {
-            input.value = e.key;
-            this._updateValue();
-            
-            // Move focus to next input
-            if (index < inputs.length - 1) {
-              inputs[index + 1].focus();
-            } else {
-              input.blur();
-              this.dispatchEvent(new Event('complete'));
-            }
-          }, 0);
-        } else if (e.key === 'Backspace') {
-          // If empty and not first, go to previous
-          if (input.value === '' && index > 0) {
-            inputs[index - 1].focus();
-            inputs[index - 1].value = '';
-          } else {
-            input.value = '';
-          }
-          this._updateValue();
-        } else if (e.key === 'ArrowLeft' && index > 0) {
-          inputs[index - 1].focus();
-        } else if (e.key === 'ArrowRight' && index < inputs.length - 1) {
+      // Handle input event (works better on mobile than keydown)
+      input.addEventListener('input', (e) => {
+        // Get the new value
+        const newChar = input.value.slice(-1);
+        
+        // Reset the input to just the last digit entered
+        input.value = newChar;
+        
+        // Update our internal value
+        this._updateValue();
+        
+        // Auto advance to next field if we have a value and not on last field
+        if (newChar && index < inputs.length - 1) {
           inputs[index + 1].focus();
-        } else if (e.key === 'Delete') {
-          input.value = '';
-          this._updateValue();
-        } else if (e.key !== 'Tab') {
-          // Prevent non-numeric keys
-          e.preventDefault();
+        }
+        
+        // If this is the last input and we have a value, send complete event
+        if (index === inputs.length - 1 && newChar) {
+          setTimeout(() => {
+            this.dispatchEvent(new Event('complete'));
+          }, 10);
         }
       });
       
+      // Also handle keydown for special keys (backspace, arrows)
+      input.addEventListener('keydown', (e) => {
+        // Handle backspace - if empty and not first input, go back
+        if (e.key === 'Backspace') {
+          if (input.value === '' && index > 0) {
+            // Focus previous input
+            inputs[index - 1].focus();
+            // Clear previous input
+            setTimeout(() => {
+              inputs[index - 1].value = '';
+              this._updateValue();
+            }, 0);
+          } else if (input.value !== '') {
+            // Clear current input if it has a value
+            setTimeout(() => {
+              input.value = '';
+              this._updateValue();
+            }, 0);
+          }
+        } 
+        // Handle left arrow
+        else if (e.key === 'ArrowLeft' && index > 0) {
+          inputs[index - 1].focus();
+        } 
+        // Handle right arrow
+        else if (e.key === 'ArrowRight' && index < inputs.length - 1) {
+          inputs[index + 1].focus();
+        }
+        // Handle delete key
+        else if (e.key === 'Delete') {
+          input.value = '';
+          this._updateValue();
+        }
+      });
+      
+      // Handle focus events to select text on focus
+      input.addEventListener('focus', () => {
+        // Select all text in input when focused
+        setTimeout(() => input.select(), 0);
+      });
+      
+      // Handle paste events
       input.addEventListener('paste', (e) => {
         e.preventDefault();
         const pasted = e.clipboardData.getData('text/plain');
         if (/^\d+$/.test(pasted)) {
           this.value = pasted;
-          this.dispatchEvent(new Event('input'));
-          if (this._value.length === this.digits) {
+          this._updateValue();
+          
+          // Trigger complete event if we have enough digits
+          if (this._value.length >= this.digits) {
             this.dispatchEvent(new Event('complete'));
           }
         }
       });
     });
+    
+    // Handle the toggle button
+    const toggleBtn = this.shadowRoot.querySelector('.toggle-pin');
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const inputs = this.shadowRoot.querySelectorAll('.pin-digit');
+        const type = inputs[0].type === 'password' ? 'text' : 'password';
+        
+        inputs.forEach(input => input.type = type);
+        toggleBtn.textContent = type === 'password' ? 'Show' : 'Hide';
+      });
+    }
   }
   
   _updateValue() {
@@ -103,6 +147,7 @@ class PinInput extends HTMLElement {
     this._value = Array.from(inputs).map(input => input.value).join('');
     this.dispatchEvent(new Event('input'));
     
+    // Check if all digits are filled
     if (this._value.length === this.digits) {
       this.dispatchEvent(new Event('complete'));
     }
@@ -134,6 +179,7 @@ class PinInput extends HTMLElement {
         .pin-fields {
           display: flex;
           gap: 8px;
+          justify-content: center;
         }
         
         .pin-digit {
@@ -170,11 +216,12 @@ class PinInput extends HTMLElement {
           display: flex;
           align-items: center;
           margin-top: 5px;
+          justify-content: center;
         }
       </style>
       
       <div class="pin-container">
-        <label>${label}</label>
+        ${label ? `<label>${label}</label>` : ''}
         <div class="pin-fields">
           ${Array(this.digits).fill().map(() => `
             <input 
@@ -194,6 +241,7 @@ class PinInput extends HTMLElement {
       </div>
     `;
     
+    // Immediately set up the toggle button
     const toggleBtn = this.shadowRoot.querySelector('.toggle-pin');
     toggleBtn.addEventListener('click', () => {
       const inputs = this.shadowRoot.querySelectorAll('.pin-digit');

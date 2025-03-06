@@ -27,6 +27,10 @@ let pinInput;
 // DOM Elements
 const elements = {};
 
+// Store callbacks for PIN modal
+let currentPinCallback = null;
+let currentCancelCallback = null;
+
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize custom components first
@@ -93,30 +97,83 @@ function setupEventListeners() {
     elements.scanButton.addEventListener('click', scanTag);
     elements.cancelButton.addEventListener('click', showWelcomeScreen);
     
-    // PIN modal
-    elements.submitPinButton.addEventListener('click', () => {
-        if (pinInput.value && typeof currentPinCallback === 'function') {
-            currentPinCallback(pinInput.value);
-            hidePinModal();
-        } else {
-            showStatus('Please enter a PIN', true);
-        }
-    });
+    // Set up the PIN modal handlers
+    setupPinModalHandlers();
+}
+
+// Set up PIN modal event handlers
+function setupPinModalHandlers() {
+    // Set up the submit button handler
+    elements.submitPinButton.addEventListener('click', handlePinSubmit);
     
-    elements.cancelPinButton.addEventListener('click', () => {
-        hidePinModal();
-        if (typeof currentCancelCallback === 'function') {
-            currentCancelCallback();
-        }
-    });
+    // Set up the cancel button handler
+    elements.cancelPinButton.addEventListener('click', handlePinCancel);
     
-    // Listen for complete event on PIN input
-    pinInput.addEventListener('complete', () => {
+    // If the PIN input component is available, set up its complete event
+    if (pinInput && pinInput.addEventListener) {
+        pinInput.addEventListener('complete', handlePinComplete);
+    }
+}
+
+// Handle PIN submission
+function handlePinSubmit() {
+    if (pinInput && pinInput.value && pinInput.value.length > 0) {
         if (typeof currentPinCallback === 'function') {
             currentPinCallback(pinInput.value);
-            hidePinModal();
         }
-    });
+        hidePinModal();
+    } else {
+        // Show error that PIN is required
+        showStatus('Please enter a PIN', true);
+    }
+}
+
+// Handle PIN complete event (all digits entered)
+function handlePinComplete() {
+    if (pinInput && pinInput.value && pinInput.value.length > 0) {
+        if (typeof currentPinCallback === 'function') {
+            currentPinCallback(pinInput.value);
+        }
+        hidePinModal();
+    }
+}
+
+// Handle PIN modal cancel
+function handlePinCancel() {
+    hidePinModal();
+    if (typeof currentCancelCallback === 'function') {
+        currentCancelCallback();
+    }
+}
+
+// Show PIN modal with improved handling
+function showPinModal(onSubmit, onCancel) {
+    // Store callbacks
+    currentPinCallback = onSubmit;
+    currentCancelCallback = onCancel;
+    
+    // Clear previous PIN
+    if (pinInput && pinInput.clear && typeof pinInput.clear === 'function') {
+        pinInput.clear();
+    }
+    
+    // Show modal
+    elements.pinModal.classList.add('active');
+    
+    // Focus the PIN input for immediate typing
+    setTimeout(() => {
+        if (pinInput && pinInput.shadowRoot) {
+            const firstDigitInput = pinInput.shadowRoot.querySelector('.pin-digit');
+            if (firstDigitInput) {
+                firstDigitInput.focus();
+            }
+        }
+    }, 300);
+}
+
+// Hide PIN modal
+function hidePinModal() {
+    elements.pinModal.classList.remove('active');
 }
 
 // Check if NFC is supported
@@ -374,32 +431,6 @@ function initializeApp() {
         // Show welcome screen
         showWelcomeScreen();
     }
-}
-
-// Store callbacks for PIN modal
-let currentPinCallback = null;
-let currentCancelCallback = null;
-
-// Show PIN modal
-function showPinModal(onSubmit, onCancel) {
-    // Store callbacks
-    currentPinCallback = onSubmit;
-    currentCancelCallback = onCancel;
-    
-    // Clear previous PIN
-    pinInput.clear();
-    
-    // Show modal
-    elements.pinModal.classList.add('active');
-}
-
-// Hide PIN modal
-function hidePinModal() {
-    elements.pinModal.classList.remove('active');
-    
-    // Clear callbacks
-    currentPinCallback = null;
-    currentCancelCallback = null;
 }
 
 // Cache PIN temporarily
@@ -796,8 +827,4 @@ NFC.parseVaultTag = function(message) {
     
     // Otherwise, use the original function
     return originalParseVaultTag(message);
-};
-
-export {
-    // Export functions that might be used by other modules if needed
 };
