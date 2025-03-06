@@ -124,7 +124,8 @@ async function startNfcScanWithChunking(readingCallback, errorCallback, mode = '
         
         // Add tag type to the event
         const enhancedEvent = {
-            ...event,
+            message: event.message,
+            serialNumber: event.serialNumber,
             tagType: tagType,
             maxSize: getMaxWriteSize(tagType)
         };
@@ -144,9 +145,10 @@ export {
     getMaxWriteSize,
     writeNfcTagChunked,
     startNfcScanWithChunking,
-    // Re-export basic functions from NFC module
-    isNfcSupported: NFC.isNfcSupported,
-    stopNfcScan: NFC.stopNfcScan,
-    parseVaultTag: NFC.parseVaultTag,
-    prepareTagRecords: NFC.prepareTagRecords
 };
+
+// Re-export basic functions from NFC module
+export const isNfcSupported = NFC.isNfcSupported;
+export const stopNfcScan = NFC.stopNfcScan;
+export const parseVaultTag = NFC.parseVaultTag;
+export const prepareTagRecords = NFC.prepareTagRecords;
