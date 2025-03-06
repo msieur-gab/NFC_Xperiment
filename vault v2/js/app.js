@@ -18,6 +18,7 @@ let appState = 'WELCOME'; // WELCOME, CREATE_TAG, EDIT_TAG
 let cachedPin = null;
 let pinCacheTimeout = null;
 const PIN_CACHE_DURATION = 120000; // 2 minutes in milliseconds
+let globalWriteMode = false;
 
 // DOM Elements
 const elements = {};
@@ -253,7 +254,7 @@ async function startNFCWrite() {
     UI.showScanningAnimation(true, 'Writing to NFC tag...');
     UI.showStatus('Please bring the NFC tag to the back of your device to write data');
     
-    // Start NFC scanning
+    // Start NFC scanning with WRITE mode
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
             console.log(`Tag detected for writing. Serial: ${serialNumber}`);
@@ -291,7 +292,8 @@ async function startNFCWrite() {
             UI.showStatus(error, true);
             currentNfcOperation = 'IDLE';
             isWritingMode = false;
-        }
+        },
+        'WRITE' // Specify WRITE mode
     );
 }
 
@@ -318,7 +320,7 @@ async function scanTagForManage() {
     UI.showScanningAnimation(false, 'Scanning for NFC tag...');
     UI.showStatus('Please bring the NFC tag to the back of your device');
     
-    // Start NFC scanning
+    // Start NFC scanning with READ mode
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
             console.log(`Tag detected for management. Serial: ${serialNumber}`);
@@ -373,7 +375,8 @@ async function scanTagForManage() {
             UI.hideScanningAnimation();
             UI.showStatus(error, true);
             currentNfcOperation = 'IDLE';
-        }
+        },
+        'READ' // Specify READ mode
     );
 }
 
@@ -562,66 +565,79 @@ async function updateExistingTag() {
 
 // Perform the actual tag update
 async function performTagUpdate(ownerKey, pin) {
-    // Set writing mode to true to prevent PIN modal from showing again
+    // Set both writing flags to true
     isWritingMode = true;
+    globalWriteMode = true;
     
     // Show scanning animation
     UI.showScanningAnimation(true, 'Updating NFC tag...');
     UI.showStatus('Please bring the same NFC tag to the back of your device');
     
-    // Prepare updated tag data structure
-    // Force using a new IV even when updating to add additional security
-    const tagData = await prepareTagDataStructure(ownerKey, pin, false);
-    
-    // Prepare records for writing
-    const records = NFC.prepareTagRecords(tagData);
-    
-    // Start NFC operation
-    currentNfcOperation = 'UPDATING';
-    
-    // Start NFC scanning
-    await NFC.startNfcScan(
-        async ({ message, serialNumber }) => {
-            console.log(`Tag detected for updating. Serial: ${serialNumber}`);
-            
-            try {
-                // Write records to tag
-                await NFC.writeNfcTag(records);
+    try {
+        // Prepare updated tag data structure
+        const tagData = await prepareTagDataStructure(ownerKey, pin, false);
+        
+        // Prepare records for writing
+        const records = NFC.prepareTagRecords(tagData);
+        
+        // Start NFC operation
+        currentNfcOperation = 'UPDATING';
+        
+        // Start NFC scanning
+        await NFC.startNfcScan(
+            async ({ message, serialNumber }) => {
+                console.log(`Tag detected for updating. Serial: ${serialNumber}`);
                 
-                // Hide scanning animation
+                try {
+                    // Write records to tag
+                    await NFC.writeNfcTag(records);
+                    
+                    // Hide scanning animation
+                    UI.hideScanningAnimation();
+                    
+                    // Show success notification
+                    UI.showSuccessNotification(
+                        'Tag Updated Successfully', 
+                        'Your NFC tag has been updated with the new information.'
+                    );
+                    
+                    // Update current tag data
+                    currentTagData = tagData;
+                    
+                    // Stop scanning
+                    await NFC.stopNfcScan();
+                    
+                    // Reset operation state
+                    currentNfcOperation = 'IDLE';
+                    isWritingMode = false;
+                    globalWriteMode = false;
+                    
+                    // Clear any pending tag data
+                    pendingTagData = null;
+                } catch (error) {
+                    UI.hideScanningAnimation();
+                    UI.showStatus(`Error updating tag: ${error.message || error}`, true);
+                    console.error(`Update Error:`, error);
+                    currentNfcOperation = 'IDLE';
+                    isWritingMode = false;
+                    globalWriteMode = false;
+                    await NFC.stopNfcScan();
+                }
+            },
+            (error) => {
                 UI.hideScanningAnimation();
-                
-                // Show success notification instead of simple status
-                UI.showSuccessNotification(
-                    'Tag Updated Successfully', 
-                    'Your NFC tag has been updated with the new information.'
-                );
-                
-                // Update current tag data
-                currentTagData = tagData;
-                
-                // Stop scanning
-                await NFC.stopNfcScan();
-                
-                // Reset operation state
+                UI.showStatus(error, true);
                 currentNfcOperation = 'IDLE';
                 isWritingMode = false;
-            } catch (error) {
-                UI.hideScanningAnimation();
-                UI.showStatus(`Error updating tag: ${error.message || error}`, true);
-                console.error(`Update Error:`, error);
-                currentNfcOperation = 'IDLE';
-                isWritingMode = false;
-                await NFC.stopNfcScan();
+                globalWriteMode = false;
             }
-        },
-        (error) => {
-            UI.hideScanningAnimation();
-            UI.showStatus(error, true);
-            currentNfcOperation = 'IDLE';
-            isWritingMode = false;
-        }
-    );
+        );
+    } catch (error) {
+        UI.hideScanningAnimation();
+        UI.showStatus(`Error preparing tag data: ${error.message || error}`, true);
+        isWritingMode = false;
+        globalWriteMode = false;
+    }
 }
 
 // Update the initialization function to set up the initial UI state
@@ -680,8 +696,8 @@ function showTagForm(isEditing = false) {
 async function scanTag() {
     if (!checkNfcSupport()) return;
     
-    // If we're already in writing mode, don't proceed with reading
-    if (isWritingMode) {
+    // Check both flags to be extra safe
+    if (isWritingMode || globalWriteMode) {
         console.log('Already in writing mode, skipping read operation');
         return;
     }
@@ -690,7 +706,7 @@ async function scanTag() {
     UI.showScanningAnimation(false, 'Scanning NFC tag...');
     UI.showStatus('Please bring the NFC tag to the back of your device');
     
-    // Start NFC scanning
+    // Start NFC scanning with READ mode
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
             // If we entered writing mode while waiting for a tag, abort the read operation
@@ -772,7 +788,8 @@ async function scanTag() {
             UI.hideScanningAnimation();
             UI.showStatus(error, true);
             showWelcomeScreen();
-        }
+        },
+        'READ' // Specify READ mode
     );
 }
 
@@ -795,3 +812,17 @@ function resetFormFields() {
     // Hide change PIN section in create mode
     document.getElementById('change-pin-section').style.display = 'none';
 }
+
+// Also update the NFC.parseVaultTag function to check the global flag
+// We'll need to monkey-patch this function
+const originalParseVaultTag = NFC.parseVaultTag;
+NFC.parseVaultTag = function(message) {
+    // If we're in write mode, don't try to parse the tag
+    if (globalWriteMode) {
+        console.log('In write mode, skipping tag parsing');
+        return null;
+    }
+    
+    // Otherwise, use the original function
+    return originalParseVaultTag(message);
+};
