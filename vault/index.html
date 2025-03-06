@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NFC Vault</title>
-    <link rel="stylesheet" href="./css/style.css">
+    <link rel="stylesheet" href="css/styles.css">
     <!-- Modules are imported in the main script -->
 </head>
 <body>
@@ -15,7 +15,6 @@
     <div class="tabs">
         <div class="tab active" data-tab="create">Create Tag</div>
         <div class="tab" data-tab="manage">Manage Tag</div>
-        <div class="tab" data-tab="access">Access Tag</div>
     </div>
     
     <!-- Create New Tag Section -->
@@ -36,6 +35,7 @@
                 <div class="input-with-button">
                     <input type="password" id="ownerPin" placeholder="Enter a PIN code (numbers only)">
                     <button id="generate-pin">Generate</button>
+                    <button id="toggle-pin-visibility" class="secondary">Show</button>
                 </div>
                 <p class="help-text">This PIN will be required to decrypt the tag. Keep it safe!</p>
             </div>
@@ -60,18 +60,21 @@
     <div id="manage-tab" class="tab-content">
         <div class="card">
             <h2>Manage NFC Tag</h2>
-            
-            <div class="form-group">
-                <label for="managePin">Owner PIN:</label>
-                <input type="password" id="managePin" placeholder="Enter your owner PIN">
-            </div>
-            
+            <p>Scan an existing NFC tag to manage it. After scanning, you'll be prompted for the PIN.</p>
             <button id="scan-for-manage">Scan Tag</button>
             
             <div id="manage-content" style="display: none;">
                 <div class="form-group">
                     <h3>Owner Information</h3>
                     <p><strong>Owner Key:</strong> <span id="manage-owner-key" class="key-display"></span></p>
+                    
+                    <div class="form-group">
+                        <label for="newPin">Change PIN (optional):</label>
+                        <div class="input-with-button">
+                            <input type="password" id="newPin" placeholder="Enter new PIN, or leave empty to keep current">
+                            <button id="toggle-new-pin-visibility" class="secondary">Show</button>
+                        </div>
+                    </div>
                 </div>
                 
                 <div class="form-group">
@@ -85,32 +88,6 @@
         </div>
     </div>
     
-    <!-- Access Tag Section -->
-    <div id="access-tab" class="tab-content">
-        <div class="card">
-            <h2>Access NFC Tag</h2>
-            
-            <div class="form-group">
-                <label for="accessKey">Reader Key:</label>
-                <input type="text" id="accessKey" placeholder="Enter your reader key">
-                <p class="help-text">Enter a reader key to verify access to the tag.</p>
-            </div>
-            
-            <button id="access-tag-button">Scan & Access Tag</button>
-            
-            <div id="access-result" style="display: none;">
-                <div class="success-notification">
-                    <div class="success-icon">✓</div>
-                    <div class="success-message">
-                        <h3>Access Granted</h3>
-                        <p>You have successfully accessed the NFC Vault.</p>
-                        <p><strong>Reader ID:</strong> <span id="access-reader-id"></span></p>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-    
     <!-- Scanning Animation -->
     <div id="scanning-animation" class="scanning-animation">
         <div class="pulse"></div>
@@ -120,7 +97,27 @@
         </div>
     </div>
     
+    <!-- PIN Modal -->
+    <div id="pin-modal" class="modal">
+        <div class="modal-content">
+            <h3>Enter Owner PIN</h3>
+            <p>Please enter the PIN to decrypt and manage this tag.</p>
+            
+            <div class="form-group">
+                <div class="input-with-button">
+                    <input type="password" id="modalPin" placeholder="Enter PIN">
+                    <button id="toggle-modal-pin-visibility" class="secondary">Show</button>
+                </div>
+            </div>
+            
+            <div class="modal-buttons">
+                <button id="submit-pin">Submit</button>
+                <button id="cancel-pin" class="secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
     <!-- Import main script as a module -->
-    <script type="module" src="./js/app.js"></script>
+    <script type="module" src="js/app.js"></script>
 </body>
 </html>

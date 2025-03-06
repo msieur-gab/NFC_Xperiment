@@ -151,18 +151,6 @@ PIN: ${ownerPin}</pre>
     document.getElementById('tagPreview').style.display = 'block';
 }
 
-// Show access success UI
-function showAccessGranted(readerId) {
-    document.getElementById('access-reader-id').textContent = readerId;
-    document.getElementById('access-result').style.display = 'block';
-    showStatus("Access granted!");
-}
-
-// Hide access success UI
-function hideAccessResult() {
-    document.getElementById('access-result').style.display = 'none';
-}
-
 // Show manage content UI
 function showManageContent(ownerKey, readers, onRemoveReader) {
     document.getElementById('manage-owner-key').textContent = ownerKey;
@@ -175,6 +163,77 @@ function hideManageContent() {
     document.getElementById('manage-content').style.display = 'none';
 }
 
+// Show PIN modal
+function showPinModal(onSubmit, onCancel) {
+    const modal = document.getElementById('pin-modal');
+    const pinInput = document.getElementById('modalPin');
+    const submitBtn = document.getElementById('submit-pin');
+    const cancelBtn = document.getElementById('cancel-pin');
+    
+    // Clear previous PIN
+    pinInput.value = '';
+    
+    // Show modal
+    modal.classList.add('active');
+    
+    // Set focus on PIN input
+    setTimeout(() => pinInput.focus(), 100);
+    
+    // Handle submit
+    const handleSubmit = () => {
+        const pin = pinInput.value;
+        if (pin) {
+            onSubmit(pin);
+            modal.classList.remove('active');
+        } else {
+            showStatus('Please enter a PIN', true);
+        }
+    };
+    
+    // Set up event listeners
+    submitBtn.onclick = handleSubmit;
+    
+    // Handle Enter key in PIN input
+    pinInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            handleSubmit();
+        }
+    };
+    
+    // Handle cancel
+    cancelBtn.onclick = () => {
+        modal.classList.remove('active');
+        if (onCancel) onCancel();
+    };
+}
+
+// Hide PIN modal
+function hidePinModal() {
+    document.getElementById('pin-modal').classList.remove('active');
+}
+
+// Setup password visibility toggle
+function setupPasswordToggles() {
+    // Create a function to toggle password visibility
+    const togglePasswordVisibility = (inputId, buttonId) => {
+        const input = document.getElementById(inputId);
+        const button = document.getElementById(buttonId);
+        
+        if (!input || !button) return;
+        
+        button.addEventListener('click', () => {
+            const type = input.type === 'password' ? 'text' : 'password';
+            input.type = type;
+            button.textContent = type === 'password' ? 'Show' : 'Hide';
+        });
+    };
+    
+    // Set up toggles for all password fields
+    togglePasswordVisibility('ownerPin', 'toggle-pin-visibility');
+    togglePasswordVisibility('newPin', 'toggle-new-pin-visibility');
+    togglePasswordVisibility('modalPin', 'toggle-modal-pin-visibility');
+}
+
 // Export the functions
 export {
     showStatus,
@@ -183,8 +242,9 @@ export {
     hideScanningAnimation,
     updateReadersList,
     showTagPreview,
-    showAccessGranted,
-    hideAccessResult,
     showManageContent,
-    hideManageContent
+    hideManageContent,
+    showPinModal,
+    hidePinModal,
+    setupPasswordToggles
 };
