@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Vault</title>
+    <link rel="stylesheet" href="css/styles.css">
+    <!-- CryptoJS Library -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <!-- Custom Components -->
+    <script src="components/nfc-scan.js"></script>
+    <script src="components/toast.js"></script>
+    <script src="components/pin-input.js"></script>
+</head>
+<body>
+    <h1>NFC Vault</h1>
+    
+    <div id="status-message"></div>
+    
+    <!-- Welcome/Onboarding Section -->
+    <div id="welcome-section" class="card">
+        <h2>Welcome to NFC Vault</h2>
+        <p>Scan an NFC tag to get started. If it's a new tag, you'll be able to create content for it. If it's an existing tag, you'll be able to edit it.</p>
+        <button id="scan-tag-button">Scan Tag</button>
+    </div>
+    
+    <!-- Tag Form Section (used for both create and edit) -->
+    <div id="tag-form" class="card" style="display: none;">
+        <h2 id="form-title">Create New NFC Tag</h2>
+        
+        <div class="form-group">
+            <label for="ownerKey">Owner Key:</label>
+            <div class="input-with-button">
+                <input type="text" id="ownerKey" placeholder="Enter a unique key for the owner">
+                <button id="generate-owner-key">Generate</button>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label for="ownerPin">PIN Code:</label>
+            <div class="input-with-button">
+                <input type="password" id="ownerPin" placeholder="Enter a PIN code (numbers only)">
+                <button id="generate-pin">Generate</button>
+                <button id="toggle-pin-visibility" class="secondary">Show</button>
+            </div>
+            <p class="help-text">This PIN will be required to decrypt the tag. Keep it safe!</p>
+        </div>
+        
+        <!-- Change PIN section (only visible in edit mode) -->
+        <div id="change-pin-section" class="form-group" style="display: none;">
+            <label for="newPin">Change PIN (optional):</label>
+            <div class="input-with-button">
+                <input type="password" id="newPin" placeholder="Enter new PIN, or leave empty to keep current">
+                <button id="toggle-new-pin-visibility" class="secondary">Show</button>
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <h3>Readers</h3>
+            <div id="readersList" class="reader-list"></div>
+            <button id="add-reader">Add Reader</button>
+        </div>
+        
+        <button id="submit-button">Write to NFC Tag</button>
+        <button id="show-preview" class="secondary">Show Preview</button>
+        <button id="cancel-button" class="secondary">Cancel</button>
+    </div>
+    
+    <!-- Tag Preview Section -->
+    <div id="tagPreview" class="card" style="display: none;">
+        <h3>Tag Preview</h3>
+        <div id="preview-content"></div>
+    </div>
+    
+    <!-- Scanning Animation using custom component -->
+    <nfc-scan-animation id="scanning-animation"></nfc-scan-animation>
+    
+    <!-- PIN Modal -->
+    <div id="pin-modal" class="modal">
+        <div class="modal-content">
+            <h3>Enter Owner PIN</h3>
+            <p>Please enter the PIN to decrypt and manage this tag.</p>
+            
+            <div class="form-group">
+                <pin-input id="modalPinInput" digits="4" label=""></pin-input>
+            </div>
+            
+            <div class="modal-buttons">
+                <button id="submit-pin">Submit</button>
+                <button id="cancel-pin" class="secondary">Cancel</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Toast notification component -->
+    <toast-notification id="toast"></toast-notification>
+    
+    <!-- Import main script as a module -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
