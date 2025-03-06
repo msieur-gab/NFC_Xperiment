@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NFC Vault</title>
+    <link rel="stylesheet" href="./css/style.css">
+    <!-- Modules are imported in the main script -->
+</head>
+<body>
+    <h1>NFC Vault</h1>
+    
+    <div id="status-message"></div>
+    
+    <div class="tabs">
+        <div class="tab active" data-tab="create">Create Tag</div>
+        <div class="tab" data-tab="manage">Manage Tag</div>
+        <div class="tab" data-tab="access">Access Tag</div>
+    </div>
+    
+    <!-- Create New Tag Section -->
+    <div id="create-tab" class="tab-content active">
+        <div class="card">
+            <h2>Create New NFC Tag</h2>
+            
+            <div class="form-group">
+                <label for="ownerKey">Owner Key:</label>
+                <div class="input-with-button">
+                    <input type="text" id="ownerKey" placeholder="Enter a unique key for the owner">
+                    <button id="generate-owner-key">Generate</button>
+                </div>
+            </div>
+            
+            <div class="form-group">
+                <label for="ownerPin">PIN Code:</label>
+                <div class="input-with-button">
+                    <input type="password" id="ownerPin" placeholder="Enter a PIN code (numbers only)">
+                    <button id="generate-pin">Generate</button>
+                </div>
+                <p class="help-text">This PIN will be required to decrypt the tag. Keep it safe!</p>
+            </div>
+            
+            <div class="form-group">
+                <h3>Readers</h3>
+                <div id="readersList" class="reader-list"></div>
+                <button id="add-reader">Add Reader</button>
+            </div>
+            
+            <button id="write-tag-button">Write to NFC Tag</button>
+            <button id="show-preview" class="secondary">Show Preview</button>
+        </div>
+        
+        <div id="tagPreview" class="card" style="display: none;">
+            <h3>Tag Preview</h3>
+            <div id="preview-content"></div>
+        </div>
+    </div>
+    
+    <!-- Manage Tag Section -->
+    <div id="manage-tab" class="tab-content">
+        <div class="card">
+            <h2>Manage NFC Tag</h2>
+            
+            <div class="form-group">
+                <label for="managePin">Owner PIN:</label>
+                <input type="password" id="managePin" placeholder="Enter your owner PIN">
+            </div>
+            
+            <button id="scan-for-manage">Scan Tag</button>
+            
+            <div id="manage-content" style="display: none;">
+                <div class="form-group">
+                    <h3>Owner Information</h3>
+                    <p><strong>Owner Key:</strong> <span id="manage-owner-key" class="key-display"></span></p>
+                </div>
+                
+                <div class="form-group">
+                    <h3>Readers</h3>
+                    <div id="manage-readers-list" class="reader-list"></div>
+                    <button id="add-reader-to-tag">Add Reader</button>
+                </div>
+                
+                <button id="update-tag-button">Update Tag</button>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Access Tag Section -->
+    <div id="access-tab" class="tab-content">
+        <div class="card">
+            <h2>Access NFC Tag</h2>
+            
+            <div class="form-group">
+                <label for="accessKey">Reader Key:</label>
+                <input type="text" id="accessKey" placeholder="Enter your reader key">
+                <p class="help-text">Enter a reader key to verify access to the tag.</p>
+            </div>
+            
+            <button id="access-tag-button">Scan & Access Tag</button>
+            
+            <div id="access-result" style="display: none;">
+                <div class="success-notification">
+                    <div class="success-icon">✓</div>
+                    <div class="success-message">
+                        <h3>Access Granted</h3>
+                        <p>You have successfully accessed the NFC Vault.</p>
+                        <p><strong>Reader ID:</strong> <span id="access-reader-id"></span></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Scanning Animation -->
+    <div id="scanning-animation" class="scanning-animation">
+        <div class="pulse"></div>
+        <p id="scanning-text">Tap your NFC tag...</p>
+        <div class="scan-instructions">
+            Bring the NFC tag to the back of your device
+        </div>
+    </div>
+    
+    <!-- Import main script as a module -->
+    <script type="module" src="./js/app.js"></script>
+</body>
+</html>
