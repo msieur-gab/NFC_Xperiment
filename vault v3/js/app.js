@@ -103,77 +103,26 @@ function setupEventListeners() {
 
 // Set up PIN modal event handlers
 function setupPinModalHandlers() {
-    // Set up the submit button handler
-    elements.submitPinButton.addEventListener('click', handlePinSubmit);
+    // Set up the submit button handler - use direct reference
+    elements.submitPinButton.onclick = handlePinSubmit;
     
-    // Set up the cancel button handler
-    elements.cancelPinButton.addEventListener('click', handlePinCancel);
+    // Set up the cancel button handler - use direct reference
+    elements.cancelPinButton.onclick = handlePinCancel;
     
     // If the PIN input component is available, set up its complete event
-    if (pinInput && pinInput.addEventListener) {
+    if (pinInput) {
+        // Remove previous listeners
+        pinInput.removeEventListener('complete', handlePinComplete);
+        // Add new listener
         pinInput.addEventListener('complete', handlePinComplete);
     }
 }
 
-// Handle PIN submission
-function handlePinSubmit() {
-    const pinInput = document.getElementById('modalPinInput');
-    
-    // Special handling for mobile - ensure we have focus on the input
-    if (pinInput && pinInput.shadowRoot) {
-        const hiddenInput = pinInput.shadowRoot.querySelector('.pin-hidden-input');
-        if (hiddenInput) {
-            hiddenInput.focus();
-        }
-    }
-    
-    // Small delay to ensure any pending input is processed
-    setTimeout(() => {
-        // Now check the value
-        if (pinInput && pinInput.value && pinInput.value.length > 0) {
-            if (typeof currentPinCallback === 'function') {
-                currentPinCallback(pinInput.value);
-            }
-            hidePinModal();
-        } else {
-            // Show error that PIN is required
-            showStatus('Please enter a PIN', true);
-        }
-    }, 100);
-}
-
-// Handle PIN complete event (all digits entered)
-function handlePinComplete() {
-    const pinInput = document.getElementById('modalPinInput');
-    
-    // Small delay to ensure value is up to date
-    setTimeout(() => {
-        if (pinInput && pinInput.value && pinInput.value.length > 0) {
-            if (typeof currentPinCallback === 'function') {
-                currentPinCallback(pinInput.value);
-            }
-            hidePinModal();
-        }
-    }, 100);
-
-}
-
-// Handle PIN modal cancel
-function handlePinCancel() {
-    hidePinModal();
-    if (typeof currentCancelCallback === 'function') {
-        currentCancelCallback();
-    }
-}
-
-// Show PIN modal with improved handling
+// Show PIN modal
 function showPinModal(onSubmit, onCancel) {
     // Store callbacks
     currentPinCallback = onSubmit;
     currentCancelCallback = onCancel;
-    
-    // Get the PIN input component
-    const pinInput = document.getElementById('modalPinInput');
     
     // Clear previous PIN
     if (pinInput && pinInput.clear && typeof pinInput.clear === 'function') {
@@ -183,25 +132,65 @@ function showPinModal(onSubmit, onCancel) {
     // Show modal
     elements.pinModal.classList.add('active');
     
-    // Focus the PIN input for immediate typing (optimized for mobile)
+    // Focus the PIN input
     setTimeout(() => {
         if (pinInput && pinInput.shadowRoot) {
-            const hiddenInput = pinInput.shadowRoot.querySelector('.pin-hidden-input');
-            if (hiddenInput) {
-                hiddenInput.focus();
-                
-                // On mobile, try to show keyboard
-                if ('ontouchstart' in window) {
-                    hiddenInput.click();
-                }
+            const input = pinInput.shadowRoot.querySelector('input');
+            if (input) {
+                input.focus();
             }
         }
-    }, 300);
+    }, 100);
+}
+
+// Handle PIN submission
+function handlePinSubmit() {
+    const pinInput = document.getElementById('modalPinInput');
+    const pinValue = pinInput ? pinInput.value : '';
+    
+    if (pinValue && pinValue.length > 0) {
+        // Call the callback with the PIN
+        if (typeof currentPinCallback === 'function') {
+            currentPinCallback(pinValue);
+        }
+        // Hide the modal
+        hidePinModal();
+    } else {
+        // Show error
+        showStatus('Please enter a PIN', true);
+    }
+}
+
+// Handle PIN complete event
+function handlePinComplete(e) {
+    const pinInput = document.getElementById('modalPinInput');
+    const pinValue = pinInput ? pinInput.value : '';
+    
+    if (pinValue && pinValue.length > 0) {
+        // Call the callback with the PIN
+        if (typeof currentPinCallback === 'function') {
+            currentPinCallback(pinValue);
+        }
+        // Hide the modal
+        hidePinModal();
+    }
+}
+
+// Handle PIN cancel
+function handlePinCancel() {
+    hidePinModal();
+    if (typeof currentCancelCallback === 'function') {
+        currentCancelCallback();
+    }
 }
 
 // Hide PIN modal
 function hidePinModal() {
     elements.pinModal.classList.remove('active');
+    
+    // Clear callbacks
+    currentPinCallback = null;
+    currentCancelCallback = null;
 }
 
 // Check if NFC is supported

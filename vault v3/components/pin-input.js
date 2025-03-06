@@ -5,148 +5,38 @@ class PinInput extends HTMLElement {
     this.digits = 4;
     this._value = '';
     this.render();
-    this._setupEventListeners();
   }
   
   static get observedAttributes() {
-    return ['digits', 'label', 'placeholder'];
+    return ['digits', 'label'];
   }
   
   attributeChangedCallback(name, oldValue, newValue) {
     if (name === 'digits' && newValue && !isNaN(newValue)) {
       this.digits = parseInt(newValue, 10);
-      this.render();
-      this._setupEventListeners();
     }
-    if (name === 'label' || name === 'placeholder') {
-      this.render();
-    }
+    this.render();
   }
   
   get value() {
-    return this._value;
+    const input = this.shadowRoot.querySelector('input');
+    return input ? input.value : '';
   }
   
   set value(val) {
-    if (val === null || val === undefined) val = '';
-    val = val.toString().slice(0, this.digits);
-    this._value = val;
-    
-    // Update the hidden input value
-    const hiddenInput = this.shadowRoot.querySelector('.pin-hidden-input');
-    if (hiddenInput) {
-      hiddenInput.value = val;
+    const input = this.shadowRoot.querySelector('input');
+    if (input) {
+      input.value = val;
     }
-    
-    // Update the display
-    this._updateDisplay();
+    this._value = val;
   }
   
   clear() {
+    const input = this.shadowRoot.querySelector('input');
+    if (input) {
+      input.value = '';
+    }
     this._value = '';
-    const hiddenInput = this.shadowRoot.querySelector('.pin-hidden-input');
-    if (hiddenInput) {
-      hiddenInput.value = '';
-      hiddenInput.focus();
-    }
-    this._updateDisplay();
-  }
-  
-  _setupEventListeners() {
-    const hiddenInput = this.shadowRoot.querySelector('.pin-hidden-input');
-    const pinDisplay = this.shadowRoot.querySelector('.pin-display');
-    
-    // Handle clicks on the display to focus the hidden input
-    pinDisplay.addEventListener('click', () => {
-      hiddenInput.focus();
-    });
-    
-    // Handle input event on the hidden input
-    hiddenInput.addEventListener('input', (e) => {
-      // Only allow numbers
-      const numericValue = e.target.value.replace(/[^0-9]/g, '');
-      
-      // Limit to the number of digits
-      const truncatedValue = numericValue.slice(0, this.digits);
-      
-      // Update the hidden input if needed
-      if (e.target.value !== truncatedValue) {
-        e.target.value = truncatedValue;
-      }
-      
-      // Update our internal value
-      this._value = truncatedValue;
-      
-      // Update the display
-      this._updateDisplay();
-      
-      // Dispatch input event
-      this.dispatchEvent(new Event('input'));
-      
-      // If we have all digits, dispatch complete event
-      if (truncatedValue.length === this.digits) {
-        this.dispatchEvent(new Event('complete'));
-      }
-    });
-    
-    // Handle keydown for backspace and delete
-    hiddenInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && this._value.length > 0) {
-        this.dispatchEvent(new Event('complete'));
-      }
-    });
-    
-    // Handle the toggle button
-    const toggleBtn = this.shadowRoot.querySelector('.toggle-pin');
-    toggleBtn.addEventListener('click', () => {
-      this._toggleVisibility();
-    });
-  }
-  
-  _toggleVisibility() {
-    const display = this.shadowRoot.querySelector('.pin-display');
-    const toggleBtn = this.shadowRoot.querySelector('.toggle-pin');
-    
-    const isHidden = display.classList.contains('password-mode');
-    
-    if (isHidden) {
-      display.classList.remove('password-mode');
-      toggleBtn.textContent = 'Hide';
-    } else {
-      display.classList.add('password-mode');
-      toggleBtn.textContent = 'Show';
-    }
-    
-    this._updateDisplay();
-  }
-  
-  _updateDisplay() {
-    const display = this.shadowRoot.querySelector('.pin-display');
-    const isHidden = display.classList.contains('password-mode');
-    const digits = Array.from({ length: this.digits });
-    
-    // Clear existing content
-    display.innerHTML = '';
-    
-    // Create digit holders
-    digits.forEach((_, i) => {
-      const digitHolder = document.createElement('div');
-      digitHolder.className = 'digit-holder';
-      
-      if (i < this._value.length) {
-        // This digit has a value
-        if (isHidden) {
-          // Show a dot for password mode
-          digitHolder.textContent = '●';
-        } else {
-          // Show the actual digit
-          digitHolder.textContent = this._value[i];
-        }
-        digitHolder.classList.add('filled');
-      }
-      
-      display.appendChild(digitHolder);
-    });
   }
   
   render() {
@@ -167,95 +57,73 @@ class PinInput extends HTMLElement {
         
         label {
           display: block;
-          margin-bottom: 5px;
+          margin-bottom: 8px;
           font-weight: 500;
         }
         
-        .pin-input-area {
-          position: relative;
-        }
-        
-        .pin-hidden-input {
-          position: absolute;
-          opacity: 0;
+        input {
           width: 100%;
-          height: 100%;
-          top: 0;
-          left: 0;
-          border: none;
-          z-index: 2;
-          cursor: pointer;
-        }
-        
-        .pin-display {
-          display: flex;
-          gap: 8px;
-          justify-content: center;
-          align-items: center;
-          min-height: 50px;
-          cursor: text;
-        }
-        
-        .digit-holder {
-          width: 40px;
-          height: 50px;
-          border: 1px solid #e5e7eb;
-          border-radius: 4px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+          padding: 12px;
           font-size: 20px;
-          background-color: #f9fafb;
+          text-align: center;
+          border: 1px solid #ccc;
+          border-radius: 4px;
+          margin-bottom: 10px;
         }
         
-        .digit-holder.filled {
-          background-color: #f3f4f6;
-          border-color: #d1d5db;
+        input:focus {
+          outline: none;
+          border-color: #2563eb;
+          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
         }
         
-        .toggle-pin {
+        .toggle-btn {
           background: none;
           border: none;
           color: #2563eb;
           cursor: pointer;
-          padding: 5px;
-          margin-left: 5px;
           font-size: 14px;
-        }
-        
-        .controls {
-          display: flex;
-          align-items: center;
-          margin-top: 5px;
-          justify-content: center;
+          padding: 5px 10px;
+          align-self: center;
         }
       </style>
       
       <div class="pin-container">
-        ${label ? `<label>${label}</label>` : ''}
-        <div class="pin-input-area">
-          <input 
-            type="tel" 
-            class="pin-hidden-input" 
-            inputmode="numeric" 
-            pattern="[0-9]*" 
-            autocomplete="one-time-code"
-            maxlength="${this.digits}"
-          />
-          <div class="pin-display password-mode">
-            ${Array(this.digits).fill().map(() => `
-              <div class="digit-holder"></div>
-            `).join('')}
-          </div>
-        </div>
-        <div class="controls">
-          <button class="toggle-pin" type="button">Show</button>
-        </div>
+        <label for="pin-input">${label}</label>
+        <input 
+          id="pin-input"
+          type="password"
+          inputmode="numeric"
+          pattern="[0-9]*"
+          maxlength="${this.digits}"
+          autocomplete="off"
+        >
+        <button class="toggle-btn" type="button">Show PIN</button>
       </div>
     `;
     
-    // Initialize the display
-    this._updateDisplay();
+    const input = this.shadowRoot.querySelector('input');
+    const toggleBtn = this.shadowRoot.querySelector('.toggle-btn');
+    
+    input.addEventListener('input', () => {
+      this._value = input.value;
+      
+      if (input.value.length === parseInt(this.digits)) {
+        this.dispatchEvent(new Event('complete'));
+      }
+      
+      this.dispatchEvent(new Event('input'));
+    });
+    
+    toggleBtn.addEventListener('click', () => {
+      if (input.type === 'password') {
+        input.type = 'text';
+        toggleBtn.textContent = 'Hide PIN';
+      } else {
+        input.type = 'password';
+        toggleBtn.textContent = 'Show PIN';
+      }
+    });
   }
 }
 
