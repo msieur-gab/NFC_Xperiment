@@ -6,7 +6,6 @@
 // Import modules
 import * as Crypto from './crypto.js';
 import * as NFC from './nfc.js';
-import * as ChunkedNFC from './nfc-chunked.js';
 import * as UI from './ui.js';
 
 // State variables
@@ -31,9 +30,6 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Set up event listeners
     setupEventListeners();
-    
-    // Set up tabs
-    UI.setupTabs();
     
     // Set up password toggle buttons
     UI.setupPasswordToggles();
@@ -152,18 +148,6 @@ function showTagPreview() {
     // Generate a sample tag structure
     prepareTagDataStructure(ownerKey, ownerPin)
         .then(tagData => {
-            // Prepare records for size calculation
-            const records = NFC.prepareTagRecords(tagData);
-            const estimatedSize = ChunkedNFC.calculateRecordsSize(records);
-            
-            // Show size information in the preview
-            tagData.estimatedSize = estimatedSize;
-            tagData.tagSpecs = {
-                'NTAG213': ChunkedNFC.getMaxWriteSize('NTAG213'),
-                'NTAG215': ChunkedNFC.getMaxWriteSize('NTAG215'),
-                'NTAG216': ChunkedNFC.getMaxWriteSize('NTAG216')
-            };
-            
             // Show preview
             UI.showTagPreview(tagData, ownerKey, ownerPin, readers);
         })
@@ -234,7 +218,7 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
 
 // Start NFC write operation
 async function startNFCWrite() {
-    if (!ChunkedNFC.isNfcSupported()) return;
+    if (!checkNfcSupport()) return;
     
     const ownerKey = elements.ownerKey.value;
     const ownerPin = elements.ownerPin.value;
@@ -258,30 +242,21 @@ async function startNFCWrite() {
     // Prepare records for writing
     const records = NFC.prepareTagRecords(tagData);
     
-    // Get the approximate size
-    const estimatedSize = ChunkedNFC.calculateRecordsSize(records);
-    
     // Start NFC operation
     currentNfcOperation = 'WRITING';
     
     // Show scanning animation
     UI.showScanningAnimation(true, 'Writing to NFC tag...');
-    UI.showStatus(`Please bring the NFC tag to the back of your device to write data (${estimatedSize} bytes)`);
+    UI.showStatus('Please bring the NFC tag to the back of your device to write data');
     
     // Start NFC scanning with WRITE mode
-    await ChunkedNFC.startNfcScanWithChunking(
-        async (event) => {
-            const { message, serialNumber, tagType, maxSize } = event;
-            console.log(`Tag detected for writing. Serial: ${serialNumber}, Type: ${tagType}, Max Size: ${maxSize} bytes`);
+    await NFC.startNfcScan(
+        async ({ message, serialNumber }) => {
+            console.log(`Tag detected for writing. Serial: ${serialNumber}`);
             
             try {
-                // Check if data will fit
-                if (estimatedSize > maxSize) {
-                    UI.showStatus(`Warning: Data size (${estimatedSize} bytes) exceeds tag capacity (${maxSize} bytes). Some readers may not be written.`, true);
-                }
-                
-                // Write records to tag using chunked writer
-                await ChunkedNFC.writeNfcTagChunked(records, tagType);
+                // Write records to tag
+                await NFC.writeNfcTag(records);
                 
                 // Hide scanning animation
                 UI.hideScanningAnimation();
@@ -289,7 +264,7 @@ async function startNFCWrite() {
                 // Show success notification instead of simple status
                 UI.showSuccessNotification(
                     'Tag Created Successfully', 
-                    `Your NFC tag has been written with the new information. ${estimatedSize <= maxSize ? 'All data was written successfully.' : 'Some readers may have been omitted due to size constraints.'}`
+                    'Your NFC tag has been written with the new information.'
                 );
                 
                 // Stop scanning
@@ -332,7 +307,7 @@ function checkForTagScanURL() {
 
 // Improved scan tag for management with automatic detection
 async function scanTagForManage() {
-    if (!ChunkedNFC.isNfcSupported()) return;
+    if (!checkNfcSupport()) return;
     
     currentNfcOperation = 'READING_FOR_MANAGE';
     
@@ -341,10 +316,9 @@ async function scanTagForManage() {
     UI.showStatus('Please bring the NFC tag to the back of your device');
     
     // Start NFC scanning with READ mode
-    await ChunkedNFC.startNfcScanWithChunking(
-        async (event) => {
-            const { message, serialNumber, tagType } = event;
-            console.log(`Tag detected for management. Serial: ${serialNumber}, Type: ${tagType}`);
+    await NFC.startNfcScan(
+        async ({ message, serialNumber }) => {
+            console.log(`Tag detected for management. Serial: ${serialNumber}`);
             
             try {
                 // Parse tag data
@@ -526,7 +500,7 @@ function addReaderToExistingTag() {
 
 // Update an existing tag
 async function updateExistingTag() {
-    if (!ChunkedNFC.isNfcSupported()) return;
+    if (!checkNfcSupport()) return;
     
     if (!currentTagData) {
         UI.showStatus('No tag data loaded', true);
@@ -601,9 +575,6 @@ async function performTagUpdate(ownerKey, pin) {
         // Prepare records for writing
         const records = NFC.prepareTagRecords(tagData);
         
-        // Get the approximate size
-        const estimatedSize = ChunkedNFC.calculateRecordsSize(records);
-        
         // Start NFC operation
         currentNfcOperation = 'UPDATING';
         
@@ -618,19 +589,13 @@ async function performTagUpdate(ownerKey, pin) {
         // Start NFC scanning with a small delay to ensure clean initialization
         setTimeout(async () => {
             try {
-                await ChunkedNFC.startNfcScanWithChunking(
-                    async (event) => {
-                        const { message, serialNumber, tagType, maxSize } = event;
-                        console.log(`Tag detected for updating. Serial: ${serialNumber}, Type: ${tagType}, Max Size: ${maxSize} bytes`);
+                await NFC.startNfcScan(
+                    async ({ message, serialNumber }) => {
+                        console.log(`Tag detected for updating. Serial: ${serialNumber}`);
                         
                         try {
-                            // Check if data will fit
-                            if (estimatedSize > maxSize) {
-                                UI.showStatus(`Warning: Data size (${estimatedSize} bytes) exceeds tag capacity (${maxSize} bytes). Some readers may not be written.`, true);
-                            }
-                            
                             // Write records to tag
-                            await ChunkedNFC.writeNfcTagChunked(records, tagType);
+                            await NFC.writeNfcTag(records);
                             
                             // Hide scanning animation
                             UI.hideScanningAnimation();
@@ -638,7 +603,7 @@ async function performTagUpdate(ownerKey, pin) {
                             // Show success notification
                             UI.showSuccessNotification(
                                 'Tag Updated Successfully', 
-                                `Your NFC tag has been updated with the new information. ${estimatedSize <= maxSize ? 'All data was written successfully.' : 'Some readers may have been omitted due to size constraints.'}`
+                                'Your NFC tag has been updated with the new information.'
                             );
                             
                             // Update current tag data
@@ -743,7 +708,7 @@ function showTagForm(isEditing = false) {
 
 // Main scan function that handles both new and existing tags
 async function scanTag() {
-    if (!ChunkedNFC.isNfcSupported()) return;
+    if (!checkNfcSupport()) return;
     
     // Check both flags to be extra safe
     if (isWritingMode || globalWriteMode) {
@@ -756,9 +721,8 @@ async function scanTag() {
     UI.showStatus('Please bring the NFC tag to the back of your device');
     
     // Start NFC scanning with READ mode
-    await ChunkedNFC.startNfcScanWithChunking(
-        async (event) => {
-            const { message, serialNumber, tagType } = event;
+    await NFC.startNfcScan(
+        async ({ message, serialNumber }) => {
             // If we entered writing mode while waiting for a tag, abort the read operation
             if (isWritingMode) {
                 console.log('Entered writing mode, aborting read operation');

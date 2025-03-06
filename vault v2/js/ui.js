@@ -3,15 +3,15 @@
  * Handles UI interactions and display
  */
 
-import Toast from './toast-component.js';
-
-// Show status message using Toast
+// Show status message
 function showStatus(message, isError = false) {
-    if (isError) {
-        Toast.error('Error', message);
-    } else {
-        Toast.info('Status', message);
-    }
+    const statusElement = document.getElementById('status-message');
+    statusElement.innerHTML = `<div class="${isError ? 'error' : 'status'}">${message}</div>`;
+    
+    // Clear after 5 seconds
+    setTimeout(() => {
+        statusElement.innerHTML = '';
+    }, 5000);
 }
 
 // Show scanning animation
@@ -119,41 +119,8 @@ PIN: ${ownerPin}</pre>
         <pre style="background-color: #f3f4f6; padding: 10px; overflow-x: auto;">${readers.map(r => `${r.id}: ${r.key}`).join('\n')}</pre>
     `;
     
-    // Add size information if available
-    let sizeHtml = '';
-    if (tagData.estimatedSize) {
-        sizeHtml = `
-        <h3 style="margin-top: 20px;">Size Information</h3>
-        <div style="background-color: #f3f4f6; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
-            <p><strong>Estimated Data Size:</strong> ${tagData.estimatedSize} bytes</p>
-            <p>NFC Tag Type Compatibility:</p>
-            <ul style="margin-top: 5px; margin-bottom: 5px;">
-                <li style="margin-left: 20px; ${tagData.estimatedSize <= tagData.tagSpecs.NTAG213 ? 'color: #10b981;' : 'color: #ef4444;'}">
-                    NTAG213: ${tagData.estimatedSize <= tagData.tagSpecs.NTAG213 ? 'Compatible' : 'Too large'} 
-                    (${tagData.tagSpecs.NTAG213} bytes max)
-                </li>
-                <li style="margin-left: 20px; ${tagData.estimatedSize <= tagData.tagSpecs.NTAG215 ? 'color: #10b981;' : 'color: #ef4444;'}">
-                    NTAG215: ${tagData.estimatedSize <= tagData.tagSpecs.NTAG215 ? 'Compatible' : 'Too large'} 
-                    (${tagData.tagSpecs.NTAG215} bytes max)
-                </li>
-                <li style="margin-left: 20px; ${tagData.estimatedSize <= tagData.tagSpecs.NTAG216 ? 'color: #10b981;' : 'color: #ef4444;'}">
-                    NTAG216: ${tagData.estimatedSize <= tagData.tagSpecs.NTAG216 ? 'Compatible' : 'Too large'} 
-                    (${tagData.tagSpecs.NTAG216} bytes max)
-                </li>
-            </ul>
-            ${tagData.estimatedSize > tagData.tagSpecs.NTAG216 ? 
-            '<p style="color: #ef4444; font-weight: bold;">Warning: Your data is too large for even the largest standard tag. Consider reducing the number of readers.</p>' : 
-            ''}
-            ${(tagData.estimatedSize > tagData.tagSpecs.NTAG215 && tagData.estimatedSize <= tagData.tagSpecs.NTAG216) ? 
-            '<p style="color: #f59e0b; font-weight: bold;">Note: Your data requires a larger NTAG216 tag.</p>' : 
-            ''}
-        </div>
-        `;
-    }
-    
-    // Combine all views
+    // Combine both views
     previewElement.innerHTML = `
-        ${sizeHtml}
         <h3>Encrypted Data (This is what will be written to tag)</h3>
         ${encryptedHtml}
         
@@ -199,7 +166,7 @@ function showPinModal(onSubmit, onCancel) {
             onSubmit(pin);
             modal.classList.remove('active');
         } else {
-            Toast.warning('PIN Required', 'Please enter a PIN');
+            showStatus('Please enter a PIN', true);
         }
     };
     
@@ -249,32 +216,24 @@ function setupPasswordToggles() {
 
 // Show success notification
 function showSuccessNotification(title, message) {
-    Toast.success(title, message, 8000); // Longer duration (8 seconds)
-}
-
-// Setup tabs if they exist in the DOM
-function setupTabs() {
-    const tabButtons = document.querySelectorAll('.tab');
-    const tabContents = document.querySelectorAll('.tab-content');
+    const statusElement = document.getElementById('status-message');
     
-    if (tabButtons.length === 0) return;
+    const html = `
+        <div class="success-notification">
+            <div class="success-icon">✓</div>
+            <div class="success-message">
+                <h3>${title}</h3>
+                <p>${message}</p>
+            </div>
+        </div>
+    `;
     
-    tabButtons.forEach(button => {
-        button.addEventListener('click', () => {
-            // Remove active class from all tabs
-            tabButtons.forEach(btn => btn.classList.remove('active'));
-            tabContents.forEach(content => content.classList.remove('active'));
-            
-            // Add active class to clicked tab and corresponding content
-            button.classList.add('active');
-            const tabId = button.getAttribute('data-tab');
-            const content = document.getElementById(tabId);
-            if (content) content.classList.add('active');
-        });
-    });
+    statusElement.innerHTML = html;
     
-    // Activate first tab by default
-    if (tabButtons[0]) tabButtons[0].click();
+    // Clear after 8 seconds (longer than regular status messages)
+    setTimeout(() => {
+        statusElement.innerHTML = '';
+    }, 8000);
 }
 
 // Export the functions
@@ -289,6 +248,5 @@ export {
     showPinModal,
     hidePinModal,
     setupPasswordToggles,
-    showSuccessNotification,
-    setupTabs
+    showSuccessNotification
 };
