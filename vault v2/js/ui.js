@@ -3,15 +3,15 @@
  * Handles UI interactions and display
  */
 
-// Show status message
+import Toast from './toast-component.js';
+
+// Show status message using Toast
 function showStatus(message, isError = false) {
-    const statusElement = document.getElementById('status-message');
-    statusElement.innerHTML = `<div class="${isError ? 'error' : 'status'}">${message}</div>`;
-    
-    // Clear after 5 seconds
-    setTimeout(() => {
-        statusElement.innerHTML = '';
-    }, 5000);
+    if (isError) {
+        Toast.error('Error', message);
+    } else {
+        Toast.info('Status', message);
+    }
 }
 
 // Show scanning animation
@@ -70,7 +70,7 @@ function updateReadersList(readers, containerId = 'readersList', onRemove = null
     });
 }
 
-// Show tag preview with size information
+// Show tag preview
 function showTagPreview(tagData, ownerKey, ownerPin, readers) {
     const previewElement = document.getElementById('preview-content');
     
@@ -199,7 +199,7 @@ function showPinModal(onSubmit, onCancel) {
             onSubmit(pin);
             modal.classList.remove('active');
         } else {
-            showStatus('Please enter a PIN', true);
+            Toast.warning('PIN Required', 'Please enter a PIN');
         }
     };
     
@@ -249,24 +249,32 @@ function setupPasswordToggles() {
 
 // Show success notification
 function showSuccessNotification(title, message) {
-    const statusElement = document.getElementById('status-message');
+    Toast.success(title, message, 8000); // Longer duration (8 seconds)
+}
+
+// Setup tabs if they exist in the DOM
+function setupTabs() {
+    const tabButtons = document.querySelectorAll('.tab');
+    const tabContents = document.querySelectorAll('.tab-content');
     
-    const html = `
-        <div class="success-notification">
-            <div class="success-icon">✓</div>
-            <div class="success-message">
-                <h3>${title}</h3>
-                <p>${message}</p>
-            </div>
-        </div>
-    `;
+    if (tabButtons.length === 0) return;
     
-    statusElement.innerHTML = html;
+    tabButtons.forEach(button => {
+        button.addEventListener('click', () => {
+            // Remove active class from all tabs
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            tabContents.forEach(content => content.classList.remove('active'));
+            
+            // Add active class to clicked tab and corresponding content
+            button.classList.add('active');
+            const tabId = button.getAttribute('data-tab');
+            const content = document.getElementById(tabId);
+            if (content) content.classList.add('active');
+        });
+    });
     
-    // Clear after 8 seconds (longer than regular status messages)
-    setTimeout(() => {
-        statusElement.innerHTML = '';
-    }, 8000);
+    // Activate first tab by default
+    if (tabButtons[0]) tabButtons[0].click();
 }
 
 // Export the functions
@@ -281,5 +289,6 @@ export {
     showPinModal,
     hidePinModal,
     setupPasswordToggles,
-    showSuccessNotification
+    showSuccessNotification,
+    setupTabs
 };
