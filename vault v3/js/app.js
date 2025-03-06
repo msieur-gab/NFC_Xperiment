@@ -117,25 +117,45 @@ function setupPinModalHandlers() {
 
 // Handle PIN submission
 function handlePinSubmit() {
-    if (pinInput && pinInput.value && pinInput.value.length > 0) {
-        if (typeof currentPinCallback === 'function') {
-            currentPinCallback(pinInput.value);
+    const pinInput = document.getElementById('modalPinInput');
+    
+    // Special handling for mobile - ensure we have focus on the input
+    if (pinInput && pinInput.shadowRoot) {
+        const hiddenInput = pinInput.shadowRoot.querySelector('.pin-hidden-input');
+        if (hiddenInput) {
+            hiddenInput.focus();
         }
-        hidePinModal();
-    } else {
-        // Show error that PIN is required
-        showStatus('Please enter a PIN', true);
     }
+    
+    // Small delay to ensure any pending input is processed
+    setTimeout(() => {
+        // Now check the value
+        if (pinInput && pinInput.value && pinInput.value.length > 0) {
+            if (typeof currentPinCallback === 'function') {
+                currentPinCallback(pinInput.value);
+            }
+            hidePinModal();
+        } else {
+            // Show error that PIN is required
+            showStatus('Please enter a PIN', true);
+        }
+    }, 100);
 }
 
 // Handle PIN complete event (all digits entered)
 function handlePinComplete() {
-    if (pinInput && pinInput.value && pinInput.value.length > 0) {
-        if (typeof currentPinCallback === 'function') {
-            currentPinCallback(pinInput.value);
+    const pinInput = document.getElementById('modalPinInput');
+    
+    // Small delay to ensure value is up to date
+    setTimeout(() => {
+        if (pinInput && pinInput.value && pinInput.value.length > 0) {
+            if (typeof currentPinCallback === 'function') {
+                currentPinCallback(pinInput.value);
+            }
+            hidePinModal();
         }
-        hidePinModal();
-    }
+    }, 100);
+
 }
 
 // Handle PIN modal cancel
@@ -152,6 +172,9 @@ function showPinModal(onSubmit, onCancel) {
     currentPinCallback = onSubmit;
     currentCancelCallback = onCancel;
     
+    // Get the PIN input component
+    const pinInput = document.getElementById('modalPinInput');
+    
     // Clear previous PIN
     if (pinInput && pinInput.clear && typeof pinInput.clear === 'function') {
         pinInput.clear();
@@ -160,12 +183,17 @@ function showPinModal(onSubmit, onCancel) {
     // Show modal
     elements.pinModal.classList.add('active');
     
-    // Focus the PIN input for immediate typing
+    // Focus the PIN input for immediate typing (optimized for mobile)
     setTimeout(() => {
         if (pinInput && pinInput.shadowRoot) {
-            const firstDigitInput = pinInput.shadowRoot.querySelector('.pin-digit');
-            if (firstDigitInput) {
-                firstDigitInput.focus();
+            const hiddenInput = pinInput.shadowRoot.querySelector('.pin-hidden-input');
+            if (hiddenInput) {
+                hiddenInput.focus();
+                
+                // On mobile, try to show keyboard
+                if ('ontouchstart' in window) {
+                    hiddenInput.click();
+                }
             }
         }
     }, 300);
