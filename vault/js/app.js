@@ -150,7 +150,7 @@ function showTagPreview() {
 
 // Prepare tag data structure with encryption
 async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false) {
-    // Generate a random IV for AES-GCM or use existing one
+    // Generate a random IV for AES or use existing one
     let iv, ivBase64;
     
     if (useExistingIV && currentTagData && currentTagData.metadata && currentTagData.metadata.iv) {
@@ -172,11 +172,11 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
         iv: ivBase64
     };
     
-    // Derive key from PIN
+    // With CryptoJS, we use PIN directly as key
     const { derivedKey } = await Crypto.deriveKey(ownerPin);
     
-    // Encrypt owner data
-    const encryptedOwnerKey = await Crypto.encrypt(ownerKey, derivedKey, iv);
+    // Encrypt owner data - using PIN directly
+    const encryptedOwnerKey = await Crypto.encrypt(ownerKey, ownerPin, iv);
     
     // Create owner record
     const ownerRecord = {
@@ -185,11 +185,11 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
         k: encryptedOwnerKey
     };
     
-    // Encrypt reader data
+    // Encrypt reader data - using PIN directly
     const readerRecords = [];
     
     for (const reader of readers) {
-        const encryptedReaderKey = await Crypto.encrypt(reader.key, derivedKey, iv);
+        const encryptedReaderKey = await Crypto.encrypt(reader.key, ownerPin, iv);
         
         readerRecords.push({
             t: "r", // type: reader
@@ -286,46 +286,15 @@ async function scanTagForManage() {
     // Start NFC scanning
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
-            // Afficher immédiatement un message pour voir si on arrive ici
-            UI.showStatus("Tag detected, processing...");
+            console.log(`Tag detected for management. Serial: ${serialNumber}`);
             
             try {
-                // Tenter de récupérer les records bruts pour débogage
-                let rawRecords = [];
-                if (message && message.records) {
-                    message.records.forEach((record, idx) => {
-                        try {
-                            if (record.recordType === 'text') {
-                                const textDecoder = new TextDecoder();
-                                const text = textDecoder.decode(record.data);
-                                rawRecords.push(`Record ${idx}: ${text.substring(0, 50)}...`);
-                            } else if (record.recordType === 'url') {
-                                const textDecoder = new TextDecoder();
-                                const url = textDecoder.decode(record.data);
-                                rawRecords.push(`URL: ${url}`);
-                            }
-                        } catch (e) {
-                            rawRecords.push(`Error reading record ${idx}`);
-                        }
-                    });
-                }
-                
-                // Afficher les enregistrements bruts pour débogage
-                if (rawRecords.length > 0) {
-                    UI.showStatus(`Found ${rawRecords.length} records on tag`);
-                } else {
-                    UI.showStatus(`Tag detected but no records found`, true);
-                }
-                
                 // Parse tag data
                 const tagData = NFC.parseVaultTag(message);
                 
                 if (!tagData) {
                     throw new Error("Not a valid NFC Vault tag");
                 }
-                
-                // Afficher un résumé des données récupérées
-                UI.showStatus(`Tag parsed successfully. Found: metadata, owner, ${tagData.readers.length} readers`);
                 
                 // Store the tag data temporarily
                 pendingTagData = tagData;
@@ -341,15 +310,7 @@ async function scanTagForManage() {
                     // On PIN submit
                     async (pin) => {
                         try {
-                            // Afficher le PIN et l'IV pour débogage
-                            UI.showStatus(`Testing with PIN: ${pin} and IV present: ${!!pendingTagData.metadata.iv}`);
-                            
-                            // Essaie de contourner le décryptage pour test
-                            try {
-                                await forceDecryptAndLoadTag(pendingTagData, pin);
-                            } catch (decryptError) {
-                                UI.showStatus(`Forced loading failed: ${decryptError.message}`, true);
-                            }
+                            await decryptAndLoadTag(pendingTagData, pin);
                         } catch (error) {
                             UI.showStatus(`Error: ${error.message}`, true);
                         }
@@ -378,120 +339,76 @@ async function scanTagForManage() {
     );
 }
 
-async function forceDecryptAndLoadTag(tagData, pin) {
-    // Ajouter une version modifiée qui ignore les erreurs de déchiffrement
-    
-    // Informations de base pour déboguer
-    UI.showStatus(`Force loading tag with PIN: ${pin}`);
+// Decrypt and load tag data with provided PIN
+async function decryptAndLoadTag(tagData, pin) {
+    // Pour débogage, afficher un message d'état
+    UI.showStatus(`Attempting to decrypt with PIN: ${pin}`, false);
     
     try {
         // Get metadata and IV
         const ivBase64 = tagData.metadata.iv;
-        UI.showStatus(`IV found: ${ivBase64.substring(0, 10)}...`);
+        UI.showStatus(`Reading tag data...`, false);
         
-        // Try to convert IV - This might be where things break
-        let iv;
-        try {
-            iv = Crypto.base64ToArrayBuffer(ivBase64);
-            UI.showStatus('IV conversion successful');
-        } catch (ivError) {
-            UI.showStatus(`IV conversion failed: ${ivError.message}`, true);
-            // Use a dummy IV for testing
-            iv = new Uint8Array(12);
+        const iv = Crypto.base64ToArrayBuffer(ivBase64);
+        
+        // With CryptoJS, we use the PIN directly as the key
+        const { derivedKey } = await Crypto.deriveKey(pin);
+        
+        // Try to decrypt owner key
+        const ownerKey = await Crypto.decrypt(tagData.owner.k, pin, iv);
+        
+        if (!ownerKey) {
+            UI.showStatus(`Invalid PIN - cannot decrypt tag. Please check your PIN.`, true);
+            
+            // Si c'est le PIN "1111", alors forcer l'accès pour déboguer
+            if (pin === "1111") {
+                UI.showStatus("Using debug mode for PIN 1111", false);
+                // Créer des données factices pour le test
+                const mockOwnerKey = "OWNER_KEY_DEBUG";
+                const mockReaders = tagData.readers.map(r => ({
+                    id: r.id, 
+                    key: `KEY_FOR_${r.id}`
+                }));
+                
+                // Afficher l'interface
+                readers = mockReaders;
+                currentTagData = tagData;
+                UI.showManageContent(mockOwnerKey, readers, removeReaderFromTag);
+                currentNfcOperation = 'IDLE';
+                return;
+            }
+            
+            throw new Error("Invalid PIN - cannot decrypt tag");
         }
         
-        // Derive key from PIN
-        let derivedKey;
-        try {
-            const result = await Crypto.deriveKey(pin.toString());
-            derivedKey = result.derivedKey;
-            UI.showStatus('Key derivation successful');
-        } catch (keyError) {
-            UI.showStatus(`Key derivation failed: ${keyError.message}`, true);
-            return;
+        // Decrypt all reader keys
+        const decryptedReaders = [];
+        
+        for (const record of tagData.readers) {
+            const readerKey = await Crypto.decrypt(record.k, pin, iv);
+            
+            if (readerKey) {
+                decryptedReaders.push({
+                    id: record.id,
+                    key: readerKey
+                });
+            }
         }
         
-        // Simulate successful decryption for testing
-        const ownerKey = "DEBUG_OWNER_KEY";
-        
-        // Create mock reader data
-        const decryptedReaders = tagData.readers.map(record => ({
-            id: record.id,
-            key: `DEBUG_KEY_FOR_${record.id}`
-        }));
-        
-        // Store the data
+        // Store current readers and tag data
         readers = decryptedReaders;
         currentTagData = tagData;
         
-        // Show the UI
+        // Update UI
         UI.showManageContent(ownerKey, readers, removeReaderFromTag);
-        UI.showStatus("FORCE TEST MODE: Data loaded with mocked keys");
+        UI.showStatus("Tag successfully decrypted and loaded");
         
         // Reset operation state
         currentNfcOperation = 'IDLE';
     } catch (error) {
-        UI.showStatus(`Force loading failed: ${error.message}`, true);
+        UI.showStatus(`Decryption error: ${error.message}`, true);
         throw error;
     }
-}
-
-// Decrypt and load tag data with provided PIN
-// Decrypt and load tag data with provided PIN
-async function decryptAndLoadTag(tagData, pin) {
-    // Get metadata and IV
-    const ivBase64 = tagData.metadata.iv;
-    const iv = Crypto.base64ToArrayBuffer(ivBase64);
-    
-    // Derive key from PIN
-    const { derivedKey } = await Crypto.deriveKey(pin.toString()); // Assurez-vous que le PIN est une chaîne
-    
-    // Try to decrypt owner key
-    let ownerKey = await Crypto.decrypt(tagData.owner.k, derivedKey, iv);
-    
-    // ====== MODE TEST - Contournement de la vérification du PIN ======
-    // Si le déchiffrement échoue, on procède quand même avec une clé de test
-    if (!ownerKey) {
-        // On simule un succès pour voir si le reste du flux fonctionne
-        ownerKey = "DEBUG_OWNER_KEY_" + new Date().getTime();
-        
-        // Afficher un message pour indiquer qu'on est en mode test
-        UI.showStatus("MODE TEST: Contournement de la vérification PIN", false);
-    }
-    // ================================================================
-    
-    // Decrypt all reader keys
-    const decryptedReaders = [];
-    
-    for (const record of tagData.readers) {
-        // En mode test, on génère aussi des clés de lecteur factices
-        let readerKey = await Crypto.decrypt(record.k, derivedKey, iv);
-        
-        // Si on ne peut pas déchiffrer mais qu'on est en mode test (ownerKey commence par DEBUG)
-        if (!readerKey && ownerKey.startsWith("DEBUG_OWNER_KEY")) {
-            readerKey = "DEBUG_READER_KEY_" + record.id;
-        }
-        
-        if (readerKey) {
-            decryptedReaders.push({
-                id: record.id,
-                key: readerKey
-            });
-        }
-    }
-    
-    // Store current readers and tag data
-    readers = decryptedReaders;
-    currentTagData = tagData;
-    
-    // Update UI
-    UI.showManageContent(ownerKey, readers, removeReaderFromTag);
-    UI.showStatus(ownerKey.startsWith("DEBUG_OWNER_KEY") ? 
-                 "MODE TEST: Tag chargé avec clés simulées" : 
-                 "Tag successfully decrypted and loaded");
-    
-    // Reset operation state
-    currentNfcOperation = 'IDLE';
 }
 
 // Remove a reader from an existing tag
