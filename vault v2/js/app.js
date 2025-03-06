@@ -563,7 +563,7 @@ async function updateExistingTag() {
     );
 }
 
-// Perform the actual tag update
+// Modify the performTagUpdate function to handle NFC reader initialization better
 async function performTagUpdate(ownerKey, pin) {
     // Set both writing flags to true
     isWritingMode = true;
@@ -583,55 +583,74 @@ async function performTagUpdate(ownerKey, pin) {
         // Start NFC operation
         currentNfcOperation = 'UPDATING';
         
-        // Start NFC scanning
-        await NFC.startNfcScan(
-            async ({ message, serialNumber }) => {
-                console.log(`Tag detected for updating. Serial: ${serialNumber}`);
-                
-                try {
-                    // Write records to tag
-                    await NFC.writeNfcTag(records);
-                    
-                    // Hide scanning animation
-                    UI.hideScanningAnimation();
-                    
-                    // Show success notification
-                    UI.showSuccessNotification(
-                        'Tag Updated Successfully', 
-                        'Your NFC tag has been updated with the new information.'
-                    );
-                    
-                    // Update current tag data
-                    currentTagData = tagData;
-                    
-                    // Stop scanning
-                    await NFC.stopNfcScan();
-                    
-                    // Reset operation state
-                    currentNfcOperation = 'IDLE';
-                    isWritingMode = false;
-                    globalWriteMode = false;
-                    
-                    // Clear any pending tag data
-                    pendingTagData = null;
-                } catch (error) {
-                    UI.hideScanningAnimation();
-                    UI.showStatus(`Error updating tag: ${error.message || error}`, true);
-                    console.error(`Update Error:`, error);
-                    currentNfcOperation = 'IDLE';
-                    isWritingMode = false;
-                    globalWriteMode = false;
-                    await NFC.stopNfcScan();
-                }
-            },
-            (error) => {
+        // Make sure any existing NFC scan is stopped before starting a new one
+        try {
+            await NFC.stopNfcScan();
+            console.log('Stopped any existing NFC scan before update');
+        } catch (e) {
+            console.log('No existing NFC scan to stop');
+        }
+        
+        // Start NFC scanning with a small delay to ensure clean initialization
+        setTimeout(async () => {
+            try {
+                await NFC.startNfcScan(
+                    async ({ message, serialNumber }) => {
+                        console.log(`Tag detected for updating. Serial: ${serialNumber}`);
+                        
+                        try {
+                            // Write records to tag
+                            await NFC.writeNfcTag(records);
+                            
+                            // Hide scanning animation
+                            UI.hideScanningAnimation();
+                            
+                            // Show success notification
+                            UI.showSuccessNotification(
+                                'Tag Updated Successfully', 
+                                'Your NFC tag has been updated with the new information.'
+                            );
+                            
+                            // Update current tag data
+                            currentTagData = tagData;
+                            
+                            // Stop scanning
+                            await NFC.stopNfcScan();
+                            
+                            // Reset operation state
+                            currentNfcOperation = 'IDLE';
+                            isWritingMode = false;
+                            globalWriteMode = false;
+                            
+                            // Clear any pending tag data
+                            pendingTagData = null;
+                        } catch (error) {
+                            UI.hideScanningAnimation();
+                            UI.showStatus(`Error updating tag: ${error.message || error}`, true);
+                            console.error(`Update Error:`, error);
+                            currentNfcOperation = 'IDLE';
+                            isWritingMode = false;
+                            globalWriteMode = false;
+                            await NFC.stopNfcScan();
+                        }
+                    },
+                    (error) => {
+                        UI.hideScanningAnimation();
+                        UI.showStatus(`NFC error: ${error}`, true);
+                        currentNfcOperation = 'IDLE';
+                        isWritingMode = false;
+                        globalWriteMode = false;
+                    },
+                    'WRITE' // Specify WRITE mode
+                );
+            } catch (error) {
                 UI.hideScanningAnimation();
-                UI.showStatus(error, true);
+                UI.showStatus(`Failed to start NFC scan: ${error.message || error}`, true);
                 currentNfcOperation = 'IDLE';
                 isWritingMode = false;
                 globalWriteMode = false;
             }
-        );
+        }, 300); // Small delay to ensure clean initialization
     } catch (error) {
         UI.hideScanningAnimation();
         UI.showStatus(`Error preparing tag data: ${error.message || error}`, true);
