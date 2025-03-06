@@ -286,15 +286,46 @@ async function scanTagForManage() {
     // Start NFC scanning
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
-            console.log(`Tag detected for management. Serial: ${serialNumber}`);
+            // Afficher immédiatement un message pour voir si on arrive ici
+            UI.showStatus("Tag detected, processing...");
             
             try {
+                // Tenter de récupérer les records bruts pour débogage
+                let rawRecords = [];
+                if (message && message.records) {
+                    message.records.forEach((record, idx) => {
+                        try {
+                            if (record.recordType === 'text') {
+                                const textDecoder = new TextDecoder();
+                                const text = textDecoder.decode(record.data);
+                                rawRecords.push(`Record ${idx}: ${text.substring(0, 50)}...`);
+                            } else if (record.recordType === 'url') {
+                                const textDecoder = new TextDecoder();
+                                const url = textDecoder.decode(record.data);
+                                rawRecords.push(`URL: ${url}`);
+                            }
+                        } catch (e) {
+                            rawRecords.push(`Error reading record ${idx}`);
+                        }
+                    });
+                }
+                
+                // Afficher les enregistrements bruts pour débogage
+                if (rawRecords.length > 0) {
+                    UI.showStatus(`Found ${rawRecords.length} records on tag`);
+                } else {
+                    UI.showStatus(`Tag detected but no records found`, true);
+                }
+                
                 // Parse tag data
                 const tagData = NFC.parseVaultTag(message);
                 
                 if (!tagData) {
                     throw new Error("Not a valid NFC Vault tag");
                 }
+                
+                // Afficher un résumé des données récupérées
+                UI.showStatus(`Tag parsed successfully. Found: metadata, owner, ${tagData.readers.length} readers`);
                 
                 // Store the tag data temporarily
                 pendingTagData = tagData;
@@ -310,7 +341,15 @@ async function scanTagForManage() {
                     // On PIN submit
                     async (pin) => {
                         try {
-                            await decryptAndLoadTag(pendingTagData, pin);
+                            // Afficher le PIN et l'IV pour débogage
+                            UI.showStatus(`Testing with PIN: ${pin} and IV present: ${!!pendingTagData.metadata.iv}`);
+                            
+                            // Essaie de contourner le décryptage pour test
+                            try {
+                                await forceDecryptAndLoadTag(pendingTagData, pin);
+                            } catch (decryptError) {
+                                UI.showStatus(`Forced loading failed: ${decryptError.message}`, true);
+                            }
                         } catch (error) {
                             UI.showStatus(`Error: ${error.message}`, true);
                         }
@@ -337,6 +376,64 @@ async function scanTagForManage() {
             currentNfcOperation = 'IDLE';
         }
     );
+}
+
+async function forceDecryptAndLoadTag(tagData, pin) {
+    // Ajouter une version modifiée qui ignore les erreurs de déchiffrement
+    
+    // Informations de base pour déboguer
+    UI.showStatus(`Force loading tag with PIN: ${pin}`);
+    
+    try {
+        // Get metadata and IV
+        const ivBase64 = tagData.metadata.iv;
+        UI.showStatus(`IV found: ${ivBase64.substring(0, 10)}...`);
+        
+        // Try to convert IV - This might be where things break
+        let iv;
+        try {
+            iv = Crypto.base64ToArrayBuffer(ivBase64);
+            UI.showStatus('IV conversion successful');
+        } catch (ivError) {
+            UI.showStatus(`IV conversion failed: ${ivError.message}`, true);
+            // Use a dummy IV for testing
+            iv = new Uint8Array(12);
+        }
+        
+        // Derive key from PIN
+        let derivedKey;
+        try {
+            const result = await Crypto.deriveKey(pin.toString());
+            derivedKey = result.derivedKey;
+            UI.showStatus('Key derivation successful');
+        } catch (keyError) {
+            UI.showStatus(`Key derivation failed: ${keyError.message}`, true);
+            return;
+        }
+        
+        // Simulate successful decryption for testing
+        const ownerKey = "DEBUG_OWNER_KEY";
+        
+        // Create mock reader data
+        const decryptedReaders = tagData.readers.map(record => ({
+            id: record.id,
+            key: `DEBUG_KEY_FOR_${record.id}`
+        }));
+        
+        // Store the data
+        readers = decryptedReaders;
+        currentTagData = tagData;
+        
+        // Show the UI
+        UI.showManageContent(ownerKey, readers, removeReaderFromTag);
+        UI.showStatus("FORCE TEST MODE: Data loaded with mocked keys");
+        
+        // Reset operation state
+        currentNfcOperation = 'IDLE';
+    } catch (error) {
+        UI.showStatus(`Force loading failed: ${error.message}`, true);
+        throw error;
+    }
 }
 
 // Decrypt and load tag data with provided PIN
