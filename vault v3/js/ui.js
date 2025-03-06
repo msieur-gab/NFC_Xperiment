@@ -1,9 +1,9 @@
 /**
  * NFC Vault UI Module
- * Handles UI interactions and display
+ * Handles UI interactions and display, working with custom components
  */
 
-// Show status message
+// Show status message (traditional UI)
 function showStatus(message, isError = false) {
     const statusElement = document.getElementById('status-message');
     statusElement.innerHTML = `<div class="${isError ? 'error' : 'status'}">${message}</div>`;
@@ -12,46 +12,6 @@ function showStatus(message, isError = false) {
     setTimeout(() => {
         statusElement.innerHTML = '';
     }, 5000);
-}
-
-// Show scanning animation (legacy method)
-function showScanningAnimation(isWriting = false, message = null) {
-    const scanningElement = document.getElementById('scanning-animation');
-    
-    // Check if we have the custom element API
-    if (scanningElement.show && typeof scanningElement.show === 'function') {
-        // Use the custom element API
-        scanningElement.show(isWriting ? 'write' : 'scan', message);
-    } else {
-        // Legacy fallback
-        scanningElement.style.display = 'block';
-        
-        // Update animation based on operation
-        scanningElement.classList.remove('writing');
-        
-        if (isWriting) {
-            scanningElement.classList.add('writing');
-            document.getElementById('scanning-text').textContent = 
-                message || 'Writing to NFC tag...';
-        } else {
-            document.getElementById('scanning-text').textContent = 
-                message || 'Waiting for NFC tag...';
-        }
-    }
-}
-
-// Hide scanning animation (legacy method)
-function hideScanningAnimation() {
-    const scanningElement = document.getElementById('scanning-animation');
-    
-    // Check if we have the custom element API
-    if (scanningElement.hide && typeof scanningElement.hide === 'function') {
-        // Use the custom element API
-        scanningElement.hide();
-    } else {
-        // Legacy fallback
-        scanningElement.style.display = 'none';
-    }
 }
 
 // Update readers list in the UI
@@ -148,117 +108,6 @@ PIN: ${ownerPin}</pre>
     document.getElementById('tagPreview').style.display = 'block';
 }
 
-// Show manage content UI
-function showManageContent(ownerKey, readers, onRemoveReader) {
-    document.getElementById('manage-owner-key').textContent = ownerKey;
-    updateReadersList(readers, 'manage-readers-list', onRemoveReader);
-    document.getElementById('manage-content').style.display = 'block';
-}
-
-// Hide manage content UI
-function hideManageContent() {
-    document.getElementById('manage-content').style.display = 'none';
-}
-
-// Show PIN modal
-function showPinModal(onSubmit, onCancel) {
-    const modal = document.getElementById('pin-modal');
-    const pinInputElement = document.getElementById('modalPinInput');
-    const submitBtn = document.getElementById('submit-pin');
-    const cancelBtn = document.getElementById('cancel-pin');
-    
-    // Clear previous PIN
-    if (pinInputElement && pinInputElement.clear && typeof pinInputElement.clear === 'function') {
-        // Use custom element API if available
-        pinInputElement.clear();
-    } else {
-        // Fallback to legacy input
-        const legacyInput = document.getElementById('modalPin');
-        if (legacyInput) {
-            legacyInput.value = '';
-        }
-    }
-    
-    // Show modal
-    modal.classList.add('active');
-    
-    // Set focus on PIN input
-    setTimeout(() => {
-        if (pinInputElement) {
-            // Try to focus the custom element or first input inside it
-            const firstInput = pinInputElement.shadowRoot ? 
-                pinInputElement.shadowRoot.querySelector('input') : 
-                pinInputElement.querySelector('input');
-                
-            if (firstInput) {
-                firstInput.focus();
-            } else {
-                pinInputElement.focus();
-            }
-        } else {
-            // Legacy fallback
-            const legacyInput = document.getElementById('modalPin');
-            if (legacyInput) {
-                legacyInput.focus();
-            }
-        }
-    }, 100);
-    
-    // Handle submit
-    const handleSubmit = () => {
-        let pin;
-        
-        // Get PIN value from either the custom element or the legacy input
-        if (pinInputElement && pinInputElement.value !== undefined) {
-            pin = pinInputElement.value;
-        } else {
-            const legacyInput = document.getElementById('modalPin');
-            pin = legacyInput ? legacyInput.value : '';
-        }
-        
-        if (pin) {
-            onSubmit(pin);
-            modal.classList.remove('active');
-        } else {
-            showStatus('Please enter a PIN', true);
-        }
-    };
-    
-    // Set up event listeners
-    submitBtn.onclick = handleSubmit;
-    
-    // Handle PIN complete event from custom element
-    if (pinInputElement && pinInputElement.addEventListener) {
-        // First remove any existing listeners to prevent duplicates
-        const newElement = pinInputElement.cloneNode(true);
-        pinInputElement.parentNode.replaceChild(newElement, pinInputElement);
-        
-        // Add the event listener to the new element
-        newElement.addEventListener('complete', handleSubmit);
-    }
-    
-    // Handle Enter key in legacy PIN input
-    const legacyInput = document.getElementById('modalPin');
-    if (legacyInput) {
-        legacyInput.onkeydown = (e) => {
-            if (e.key === 'Enter') {
-                handleSubmit();
-            }
-        };
-    }
-    
-    // Handle cancel
-    cancelBtn.onclick = () => {
-        modal.classList.remove('active');
-        if (onCancel) onCancel();
-    };
-}
-
-// Hide PIN modal
-function hidePinModal() {
-    document.getElementById('pin-modal').classList.remove('active');
-}
-
 // Setup password visibility toggle
 function setupPasswordToggles() {
     // Create a function to toggle password visibility
@@ -278,21 +127,11 @@ function setupPasswordToggles() {
     // Set up toggles for all password fields
     togglePasswordVisibility('ownerPin', 'toggle-pin-visibility');
     togglePasswordVisibility('newPin', 'toggle-new-pin-visibility');
-    
-    // Legacy PIN input (if it exists)
-    togglePasswordVisibility('modalPin', 'toggle-modal-pin-visibility');
 }
 
 // Show success notification
 function showSuccessNotification(title, message) {
-    // First check if we have a toast component
-    const toast = document.getElementById('toast');
-    if (toast && toast.success && typeof toast.success === 'function') {
-        // Use the toast component
-        toast.success(`${title}: ${message}`);
-    }
-    
-    // Still show in status area for redundancy
+    // Use toast component if available, but always show in status area for redundancy
     const statusElement = document.getElementById('status-message');
     
     const html = `
@@ -316,14 +155,8 @@ function showSuccessNotification(title, message) {
 // Export the functions
 export {
     showStatus,
-    showScanningAnimation,
-    hideScanningAnimation,
     updateReadersList,
     showTagPreview,
-    showManageContent,
-    hideManageContent,
-    showPinModal,
-    hidePinModal,
     setupPasswordToggles,
     showSuccessNotification
 };
