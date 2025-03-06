@@ -24,6 +24,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Set up event listeners
     setupEventListeners();
+
+    
     
     // Set up tabs
     UI.setupTabs();
@@ -33,6 +35,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Check NFC support
     checkNfcSupport();
+
+    checkForTagScanURL()
 });
 
 // Initialize element references
@@ -164,8 +168,10 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
     }
     
     // Get the current URL to use as the service URL
-    const serviceUrl = window.location.origin + window.location.pathname;
-    
+    // const serviceUrl = window.location.origin + window.location.pathname;
+    const serviceUrl = window.location.origin + window.location.pathname + "?action=read";
+
+
     // Prepare metadata record
     const metadataRecord = {
         version: "1.0",
@@ -273,7 +279,20 @@ async function startNFCWrite() {
     );
 }
 
-// Scan tag for management
+// Check if app was launched from a tag scan
+function checkForTagScanURL() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const action = urlParams.get('action');
+    
+    // If the app was launched with action=read parameter
+    if (action === 'read') {
+        UI.showStatus('Tag detected, scanning...');
+        // Automatically start scanning for tag
+        scanTagForManage();
+    }
+}
+
+// Improved scan tag for management with automatic detection
 async function scanTagForManage() {
     if (!checkNfcSupport()) return;
     
@@ -305,7 +324,7 @@ async function scanTagForManage() {
                 // Stop NFC scanning
                 await NFC.stopNfcScan();
                 
-                // Show PIN modal
+                // Show PIN modal immediately
                 UI.showPinModal(
                     // On PIN submit
                     async (pin) => {
@@ -341,9 +360,6 @@ async function scanTagForManage() {
 
 // Decrypt and load tag data with provided PIN
 async function decryptAndLoadTag(tagData, pin) {
-    // Pour débogage, afficher un message d'état
-    UI.showStatus(`Attempting to decrypt with PIN: ${pin}`, false);
-    
     try {
         // Get metadata and IV
         const ivBase64 = tagData.metadata.iv;
@@ -359,25 +375,6 @@ async function decryptAndLoadTag(tagData, pin) {
         
         if (!ownerKey) {
             UI.showStatus(`Invalid PIN - cannot decrypt tag. Please check your PIN.`, true);
-            
-            // Si c'est le PIN "1111", alors forcer l'accès pour déboguer
-            if (pin === "1111") {
-                UI.showStatus("Using debug mode for PIN 1111", false);
-                // Créer des données factices pour le test
-                const mockOwnerKey = "OWNER_KEY_DEBUG";
-                const mockReaders = tagData.readers.map(r => ({
-                    id: r.id, 
-                    key: `KEY_FOR_${r.id}`
-                }));
-                
-                // Afficher l'interface
-                readers = mockReaders;
-                currentTagData = tagData;
-                UI.showManageContent(mockOwnerKey, readers, removeReaderFromTag);
-                currentNfcOperation = 'IDLE';
-                return;
-            }
-            
             throw new Error("Invalid PIN - cannot decrypt tag");
         }
         
