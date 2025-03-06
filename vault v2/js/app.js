@@ -680,6 +680,12 @@ function showTagForm(isEditing = false) {
 async function scanTag() {
     if (!checkNfcSupport()) return;
     
+    // If we're already in writing mode, don't proceed with reading
+    if (isWritingMode) {
+        console.log('Already in writing mode, skipping read operation');
+        return;
+    }
+    
     // Show scanning animation
     UI.showScanningAnimation(false, 'Scanning NFC tag...');
     UI.showStatus('Please bring the NFC tag to the back of your device');
@@ -687,6 +693,14 @@ async function scanTag() {
     // Start NFC scanning
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
+            // If we entered writing mode while waiting for a tag, abort the read operation
+            if (isWritingMode) {
+                console.log('Entered writing mode, aborting read operation');
+                UI.hideScanningAnimation();
+                await NFC.stopNfcScan();
+                return;
+            }
+            
             try {
                 // Try to parse as a vault tag
                 const tagData = NFC.parseVaultTag(message);
@@ -696,6 +710,12 @@ async function scanTag() {
                 
                 // Stop NFC scanning
                 await NFC.stopNfcScan();
+                
+                // If we entered writing mode while processing, abort
+                if (isWritingMode) {
+                    console.log('Entered writing mode, aborting read operation');
+                    return;
+                }
                 
                 if (tagData) {
                     // It's an existing tag
