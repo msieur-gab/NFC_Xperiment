@@ -70,7 +70,7 @@ function updateReadersList(readers, containerId = 'readersList', onRemove = null
     });
 }
 
-// Show tag preview
+// Show tag preview with size information
 function showTagPreview(tagData, ownerKey, ownerPin, readers) {
     const previewElement = document.getElementById('preview-content');
     
@@ -119,8 +119,41 @@ PIN: ${ownerPin}</pre>
         <pre style="background-color: #f3f4f6; padding: 10px; overflow-x: auto;">${readers.map(r => `${r.id}: ${r.key}`).join('\n')}</pre>
     `;
     
-    // Combine both views
+    // Add size information if available
+    let sizeHtml = '';
+    if (tagData.estimatedSize) {
+        sizeHtml = `
+        <h3 style="margin-top: 20px;">Size Information</h3>
+        <div style="background-color: #f3f4f6; padding: 10px; border-radius: 8px; margin-bottom: 15px;">
+            <p><strong>Estimated Data Size:</strong> ${tagData.estimatedSize} bytes</p>
+            <p>NFC Tag Type Compatibility:</p>
+            <ul style="margin-top: 5px; margin-bottom: 5px;">
+                <li style="margin-left: 20px; ${tagData.estimatedSize <= tagData.tagSpecs.NTAG213 ? 'color: #10b981;' : 'color: #ef4444;'}">
+                    NTAG213: ${tagData.estimatedSize <= tagData.tagSpecs.NTAG213 ? 'Compatible' : 'Too large'} 
+                    (${tagData.tagSpecs.NTAG213} bytes max)
+                </li>
+                <li style="margin-left: 20px; ${tagData.estimatedSize <= tagData.tagSpecs.NTAG215 ? 'color: #10b981;' : 'color: #ef4444;'}">
+                    NTAG215: ${tagData.estimatedSize <= tagData.tagSpecs.NTAG215 ? 'Compatible' : 'Too large'} 
+                    (${tagData.tagSpecs.NTAG215} bytes max)
+                </li>
+                <li style="margin-left: 20px; ${tagData.estimatedSize <= tagData.tagSpecs.NTAG216 ? 'color: #10b981;' : 'color: #ef4444;'}">
+                    NTAG216: ${tagData.estimatedSize <= tagData.tagSpecs.NTAG216 ? 'Compatible' : 'Too large'} 
+                    (${tagData.tagSpecs.NTAG216} bytes max)
+                </li>
+            </ul>
+            ${tagData.estimatedSize > tagData.tagSpecs.NTAG216 ? 
+            '<p style="color: #ef4444; font-weight: bold;">Warning: Your data is too large for even the largest standard tag. Consider reducing the number of readers.</p>' : 
+            ''}
+            ${(tagData.estimatedSize > tagData.tagSpecs.NTAG215 && tagData.estimatedSize <= tagData.tagSpecs.NTAG216) ? 
+            '<p style="color: #f59e0b; font-weight: bold;">Note: Your data requires a larger NTAG216 tag.</p>' : 
+            ''}
+        </div>
+        `;
+    }
+    
+    // Combine all views
     previewElement.innerHTML = `
+        ${sizeHtml}
         <h3>Encrypted Data (This is what will be written to tag)</h3>
         ${encryptedHtml}
         
