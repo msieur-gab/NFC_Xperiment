@@ -15,6 +15,9 @@ let currentTagData = null;
 let pendingTagData = null; // Store tag data temporarily before PIN entry
 let isWritingMode = false; // New flag to track if we're in writing mode
 let appState = 'WELCOME'; // WELCOME, CREATE_TAG, EDIT_TAG
+let cachedPin = null;
+let pinCacheTimeout = null;
+const PIN_CACHE_DURATION = 120000; // 2 minutes in milliseconds
 
 // DOM Elements
 const elements = {};
@@ -374,6 +377,34 @@ async function scanTagForManage() {
     );
 }
 
+// Function to cache the PIN temporarily
+function cachePin(pin) {
+    // Clear any existing timeout
+    if (pinCacheTimeout) {
+        clearTimeout(pinCacheTimeout);
+    }
+    
+    // Store the PIN in memory
+    cachedPin = pin;
+    
+    // Set a timeout to clear the PIN
+    pinCacheTimeout = setTimeout(() => {
+        clearPinCache();
+    }, PIN_CACHE_DURATION);
+    
+    console.log('PIN cached temporarily for update operations');
+}
+
+// Function to clear the PIN cache
+function clearPinCache() {
+    cachedPin = null;
+    if (pinCacheTimeout) {
+        clearTimeout(pinCacheTimeout);
+        pinCacheTimeout = null;
+    }
+    console.log('PIN cache cleared');
+}
+
 // Decrypt and load tag data with provided PIN
 async function decryptAndLoadTag(tagData, pin) {
     try {
@@ -421,6 +452,9 @@ async function decryptAndLoadTag(tagData, pin) {
         
         // Reset operation state
         currentNfcOperation = 'IDLE';
+        
+        // If decryption was successful, cache the PIN temporarily
+        cachePin(pin);
         
         return true;
     } catch (error) {
@@ -481,24 +515,8 @@ async function updateExistingTag() {
     // Check if a new PIN was provided
     const newPin = document.getElementById('newPin').value;
     
-    // If no new PIN, prompt for current PIN
-    if (!newPin || newPin.trim() === '') {
-        UI.showPinModal(
-            // On PIN submit
-            async (pin) => {
-                try {
-                    await performTagUpdate(ownerKey, pin);
-                } catch (error) {
-                    UI.showStatus(`Error: ${error.message}`, true);
-                }
-            },
-            // On PIN cancel
-            () => {
-                UI.showStatus('Update cancelled');
-            }
-        );
-    } else {
-        // Use the new PIN
+    // If a new PIN is provided, use it directly
+    if (newPin && newPin.trim() !== '') {
         try {
             await performTagUpdate(ownerKey, newPin);
             // Clear the new PIN field
@@ -506,7 +524,40 @@ async function updateExistingTag() {
         } catch (error) {
             UI.showStatus(`Error: ${error.message}`, true);
         }
+        return;
     }
+    
+    // If we have a cached PIN, use it without prompting
+    if (cachedPin) {
+        try {
+            await performTagUpdate(ownerKey, cachedPin);
+            // Extend the PIN cache time since we just used it
+            cachePin(cachedPin);
+        } catch (error) {
+            UI.showStatus(`Error: ${error.message}`, true);
+            // If there was an error, maybe the PIN is wrong, so clear it
+            clearPinCache();
+        }
+        return;
+    }
+    
+    // If no cached PIN and no new PIN, prompt for current PIN
+    UI.showPinModal(
+        // On PIN submit
+        async (pin) => {
+            try {
+                await performTagUpdate(ownerKey, pin);
+                // Cache the PIN for future operations
+                cachePin(pin);
+            } catch (error) {
+                UI.showStatus(`Error: ${error.message}`, true);
+            }
+        },
+        // On PIN cancel
+        () => {
+            UI.showStatus('Update cancelled');
+        }
+    );
 }
 
 // Perform the actual tag update
@@ -596,6 +647,9 @@ function showWelcomeScreen() {
     document.getElementById('tag-form').style.display = 'none';
     // Show welcome section
     document.getElementById('welcome-section').style.display = 'block';
+    
+    // Clear PIN cache when returning to welcome screen
+    clearPinCache();
 }
 
 // Show tag form (either for creation or editing)
@@ -647,7 +701,22 @@ async function scanTag() {
                     // It's an existing tag
                     pendingTagData = tagData;
                     
-                    // Show PIN modal
+                    // If we have a cached PIN, try to use it automatically
+                    if (cachedPin && !isWritingMode) {
+                        try {
+                            const success = await decryptAndLoadTag(pendingTagData, cachedPin);
+                            if (success) {
+                                // Show edit form
+                                showTagForm(true);
+                                return;
+                            }
+                        } catch (error) {
+                            // If decryption fails with cached PIN, clear it and continue to PIN prompt
+                            clearPinCache();
+                        }
+                    }
+                    
+                    // Show PIN modal if no cached PIN or if cached PIN failed
                     UI.showPinModal(
                         // On PIN submit
                         async (pin) => {
