@@ -108,7 +108,8 @@ function updateNfcOperationUI(operation) {
         nfcScanAnimation.show('write', 'Writing to NFC tag...');
     } else if (operation === NFC_OPERATION.UPDATING) {
         nfcScanAnimation.show('write', 'Updating NFC tag...');
-    } else {
+    } else if (operation === NFC_OPERATION.IDLE) {
+        // Explicitly hide animation when transitioning to IDLE
         nfcScanAnimation.hide();
     }
 }
@@ -147,11 +148,11 @@ function handleAppStateChange(newState, oldState) {
 // Handle tag type changes
 function handleTagTypeChange(tagType, serialNumber) {
     if (tagType === TAG_TYPE.VAULT) {
-        showStatus(`Detected NFC Vault tag: ${serialNumber || 'Unknown'}`);
+        showStatus(`Detected NFC Vault tag: ${serialNumber || 'Unknown'}`, 'info');
     } else if (tagType === TAG_TYPE.EMPTY) {
-        showStatus('Empty NFC tag detected. You can now create new content.');
+        showStatus('Empty NFC tag detected. You can now create new content.', 'success');
     } else if (tagType === TAG_TYPE.INVALID) {
-        showStatus('Invalid tag format detected. This tag contains data not compatible with NFC Vault.', true);
+        showStatus('Invalid tag format detected. This tag contains data not compatible with NFC Vault.', 'warning');
     }
 }
 
@@ -230,7 +231,7 @@ function handlePinSubmit() {
         hidePinModal();
     } else {
         // Show error
-        showStatus('Please enter a PIN', true);
+        showStatus('Please enter a PIN', 'error');
     }
 }
 
@@ -271,23 +272,33 @@ function checkNfcSupport() {
     const supported = NFC.isNfcSupported();
     
     if (!supported) {
-        showStatus("NFC is not supported on this device or browser.", true);
+        showStatus("NFC is not supported on this device or browser.", 'error');
     }
     
     return supported;
 }
 
-// Show status message with optional toast notification
-function showStatus(message, isError = false) {
-    // Always use standard status display
-    UI.showStatus(message, isError);
+// Show status message with toast notification
+function showStatus(message, type = 'info') {
+    // Always use standard status display first
+    UI.showStatus(message, type === 'error');
     
-    // Also show toast when available
+    // Also show toast when available with proper type
     if (toast) {
-        if (isError) {
-            toast.error(message);
-        } else {
-            toast.info(message);
+        switch (type) {
+            case 'success':
+                toast.success(message);
+                break;
+            case 'error':
+                toast.error(message);
+                break;
+            case 'warning':
+                toast.warning(message);
+                break;
+            case 'info':
+            default:
+                toast.info(message);
+                break;
         }
     }
 }
@@ -309,7 +320,7 @@ function addReader() {
     
     // Check if reader ID already exists
     if (readers.some(r => r.id === readerId)) {
-        showStatus(`Reader "${readerId}" already exists`, true);
+        showStatus(`Reader "${readerId}" already exists`, 'error');
         return;
     }
     
@@ -326,7 +337,7 @@ function addReader() {
     
     readers.push({ id: readerId, key: readerKey });
     UI.updateReadersList(readers, 'readersList', removeReader);
-    showStatus(`Reader "${readerId}" added`);
+    showStatus(`Reader "${readerId}" added`, 'success');
 }
 
 // Remove a reader
@@ -336,7 +347,7 @@ function removeReader(index) {
         const readerName = readers[index].id;
         readers.splice(index, 1);
         UI.updateReadersList(readers, 'readersList', removeReader);
-        showStatus(`Reader "${readerName}" removed`);
+        showStatus(`Reader "${readerName}" removed`, 'success');
     }
 }
 
@@ -346,12 +357,12 @@ function showTagPreview() {
     const ownerPin = elements.ownerPin.value;
 
     if (!ownerKey || !ownerPin) {
-        showStatus('Owner key and PIN are required', true);
+        showStatus('Owner key and PIN are required', 'error');
         return;
     }
 
     if (readers.length === 0) {
-        showStatus('Please add at least one reader', true);
+        showStatus('Please add at least one reader', 'warning');
         return;
     }
 
@@ -363,7 +374,7 @@ function showTagPreview() {
             elements.tagPreview.style.display = 'block';
         })
         .catch(error => {
-            showStatus(`Error preparing tag data: ${error.message}`, true);
+            showStatus(`Error preparing tag data: ${error.message}`, 'error');
         });
 }
 
@@ -434,18 +445,18 @@ async function startNFCWrite() {
     const ownerPin = elements.ownerPin.value;
     
     if (!ownerKey || !ownerPin) {
-        showStatus('Owner key and PIN are required', true);
+        showStatus('Owner key and PIN are required', 'error');
         return;
     }
     
     if (readers.length === 0) {
-        showStatus('Please add at least one reader', true);
+        showStatus('Please add at least one reader', 'warning');
         return;
     }
     
     // Check if we can start writing
     if (!stateManager.canStartOperation(NFC_OPERATION.WRITING)) {
-        showStatus(`Cannot start writing while in ${stateManager.nfcOperation} state`, true);
+        showStatus(`Cannot start writing while in ${stateManager.nfcOperation} state`, 'error');
         return;
     }
     
@@ -460,7 +471,7 @@ async function startNFCWrite() {
         stateManager.startWriting(false);
         
         // Show status message
-        showStatus('Please bring the NFC tag to the back of your device to write data');
+        showStatus('Please bring the NFC tag to the back of your device to write data', 'info');
         
         // Start NFC scanning
         await NFC.startNfcScan(
@@ -471,7 +482,10 @@ async function startNFCWrite() {
                     // Write records to tag
                     await NFC.writeNfcTag(records);
                     
-                    // Show success notification
+                    // Show success notification with toast
+                    showStatus('Tag Created Successfully! Your NFC tag has been written with the new information.', 'success');
+                    
+                    // Also show success notification in UI
                     UI.showSuccessNotification(
                         'Tag Created Successfully', 
                         'Your NFC tag has been written with the new information.'
@@ -479,24 +493,26 @@ async function startNFCWrite() {
                     
                     // Stop scanning
                     await NFC.stopNfcScan();
+                    // Hide the animation explicitly - THIS IS MISSING
+                    nfcScanAnimation.hide();
                     
                     // Reset operation state
                     stateManager.finishOperation();
                 } catch (error) {
-                    showStatus(`Error writing to tag: ${error.message || error}`, true);
+                    showStatus(`Error writing to tag: ${error.message || error}`, 'error');
                     console.error(`Write Error:`, error);
                     stateManager.finishOperation();
                     await NFC.stopNfcScan();
                 }
             },
             (error) => {
-                showStatus(error, true);
+                showStatus(error, 'error');
                 stateManager.finishOperation();
             },
             'WRITE' // Specify WRITE mode
         );
     } catch (error) {
-        showStatus(`Error preparing tag data: ${error.message || error}`, true);
+        showStatus(`Error preparing tag data: ${error.message || error}`, 'error');
         stateManager.finishOperation();
     }
 }
@@ -509,7 +525,7 @@ function initializeApp() {
     
     if (action === 'read') {
         // Start scanning immediately
-        showStatus('Tag detected, scanning...');
+        showStatus('Tag detected, scanning...', 'info');
         scanTag();
     } else {
         // Show welcome screen
@@ -522,7 +538,7 @@ async function decryptAndLoadTag(tagData, pin) {
     try {
         // Get metadata and IV
         const ivBase64 = tagData.metadata.iv;
-        showStatus(`Reading tag data...`, false);
+        showStatus(`Reading tag data...`, 'info');
         
         const iv = Crypto.base64ToArrayBuffer(ivBase64);
         
@@ -530,7 +546,7 @@ async function decryptAndLoadTag(tagData, pin) {
         const ownerKey = await Crypto.decrypt(tagData.owner.k, pin, iv);
         
         if (!ownerKey) {
-            showStatus(`Invalid PIN - cannot decrypt tag. Please check your PIN.`, true);
+            showStatus(`Invalid PIN - cannot decrypt tag. Please check your PIN.`, 'error');
             throw new Error("Invalid PIN - cannot decrypt tag");
         }
         
@@ -556,7 +572,7 @@ async function decryptAndLoadTag(tagData, pin) {
         elements.ownerKey.value = ownerKey;
         UI.updateReadersList(readers, 'readersList', removeReader);
         
-        showStatus("Tag successfully decrypted and loaded");
+        showStatus("Tag successfully decrypted and loaded", 'success');
         
         // Reset operation state
         stateManager.finishOperation();
@@ -566,7 +582,7 @@ async function decryptAndLoadTag(tagData, pin) {
         
         return true;
     } catch (error) {
-        showStatus(`Decryption error: ${error.message}`, true);
+        showStatus(`Decryption error: ${error.message}`, 'error');
         throw error;
     }
 }
@@ -576,7 +592,7 @@ async function updateExistingTag() {
     if (!checkNfcSupport()) return;
     
     if (!stateManager.currentTagData) {
-        showStatus('No tag data loaded', true);
+        showStatus('No tag data loaded', 'error');
         return;
     }
     
@@ -593,7 +609,7 @@ async function updateExistingTag() {
             // Clear the new PIN field
             elements.newPin.value = '';
         } catch (error) {
-            showStatus(`Error: ${error.message}`, true);
+            showStatus(`Error: ${error.message}`, 'error');
         }
         return;
     }
@@ -604,7 +620,7 @@ async function updateExistingTag() {
             await performTagUpdate(ownerKey, stateManager.getCachedPin());
             // PIN already cached in state manager, no need to re-cache
         } catch (error) {
-            showStatus(`Error: ${error.message}`, true);
+            showStatus(`Error: ${error.message}`, 'error');
             // If there was an error, maybe the PIN is wrong, so clear it
             stateManager.clearPinCache();
         }
@@ -620,12 +636,12 @@ async function updateExistingTag() {
                 // Cache the PIN for future operations
                 stateManager.cachePin(pin);
             } catch (error) {
-                showStatus(`Error: ${error.message}`, true);
+                showStatus(`Error: ${error.message}`, 'error');
             }
         },
         // On PIN cancel
         () => {
-            showStatus('Update cancelled');
+            showStatus('Update cancelled', 'info');
         }
     );
 }
@@ -634,7 +650,7 @@ async function updateExistingTag() {
 async function performTagUpdate(ownerKey, pin) {
     // Check if we can start updating
     if (!stateManager.canStartOperation(NFC_OPERATION.UPDATING)) {
-        showStatus(`Cannot start updating while in ${stateManager.nfcOperation} state`, true);
+        showStatus(`Cannot start updating while in ${stateManager.nfcOperation} state`, 'error');
         return;
     }
     
@@ -642,7 +658,7 @@ async function performTagUpdate(ownerKey, pin) {
     stateManager.startWriting(true); // true = update mode
     
     // Show status message
-    showStatus('Please bring the same NFC tag to the back of your device');
+    showStatus('Please bring the same NFC tag to the back of your device', 'info');
     
     try {
         // Prepare updated tag data structure
@@ -673,7 +689,10 @@ async function performTagUpdate(ownerKey, pin) {
                         // Write records to tag
                         await NFC.writeNfcTag(records);
                         
-                        // Show success notification
+                        // Show success notification with toast
+                        showStatus('Tag Updated Successfully! Your NFC tag has been updated with the new information.', 'success');
+                        
+                        // Also show success notification in UI
                         UI.showSuccessNotification(
                             'Tag Updated Successfully', 
                             'Your NFC tag has been updated with the new information.'
@@ -688,24 +707,24 @@ async function performTagUpdate(ownerKey, pin) {
                         // Reset operation state
                         stateManager.finishOperation();
                     } catch (error) {
-                        showStatus(`Error updating tag: ${error.message || error}`, true);
+                        showStatus(`Error updating tag: ${error.message || error}`, 'error');
                         console.error(`Update Error:`, error);
                         stateManager.finishOperation();
                         await NFC.stopNfcScan();
                     }
                 },
                 (error) => {
-                    showStatus(`NFC error: ${error}`, true);
+                    showStatus(`NFC error: ${error}`, 'error');
                     stateManager.finishOperation();
                 },
                 'WRITE' // Specify WRITE mode
             );
         } catch (error) {
-            showStatus(`Failed to start NFC scan: ${error.message || error}`, true);
+            showStatus(`Failed to start NFC scan: ${error.message || error}`, 'error');
             stateManager.finishOperation();
         }
     } catch (error) {
-        showStatus(`Error preparing tag data: ${error.message || error}`, true);
+        showStatus(`Error preparing tag data: ${error.message || error}`, 'error');
         stateManager.finishOperation();
     }
 }
@@ -730,7 +749,7 @@ async function scanTag() {
     
     // Check if we can start scanning
     if (!stateManager.canStartOperation(NFC_OPERATION.READING)) {
-        showStatus(`Cannot start scanning while in ${stateManager.nfcOperation} state`, true);
+        showStatus(`Cannot start scanning while in ${stateManager.nfcOperation} state`, 'error');
         return;
     }
     
@@ -738,7 +757,7 @@ async function scanTag() {
     stateManager.startReading();
     
     // Show status message
-    showStatus('Please bring the NFC tag to the back of your device');
+    showStatus('Please bring the NFC tag to the back of your device', 'info');
     
     // Start NFC scanning with READ mode
     await NFC.startNfcScan(
@@ -762,6 +781,7 @@ async function scanTag() {
                     // It's a recognized vault tag
                     stateManager.setTagType(TAG_TYPE.VAULT, serialNumber);
                     stateManager.setPendingTagData(tagData);
+                    showStatus(`NFC Vault tag detected. Serial: ${serialNumber || 'Unknown'}`, 'info');
                     
                     // If we have a cached PIN, try to use it automatically
                     if (stateManager.hasCachedPin()) {
@@ -789,37 +809,37 @@ async function scanTag() {
                                     showTagForm(true);
                                 }
                             } catch (error) {
-                                showStatus(`Error: ${error.message}`, true);
+                                showStatus(`Error: ${error.message}`, 'error');
                                 showWelcomeScreen();
                             }
                         },
                         // On PIN cancel
                         () => {
                             stateManager.setPendingTagData(null);
-                            showStatus('Operation cancelled');
+                            showStatus('Operation cancelled', 'info');
                             showWelcomeScreen();
                         }
                     );
                 } else if (message.records && message.records.length > 0) {
                     // It has content but not in our format
                     stateManager.setTagType(TAG_TYPE.INVALID, serialNumber);
-                    showStatus('This tag contains data not compatible with NFC Vault. You must clear this tag before using it.', true);
+                    showStatus('This tag contains data not compatible with NFC Vault. You must clear this tag before using it.', 'warning');
                     stateManager.finishOperation();
                 } else {
                     // It's an empty tag
                     stateManager.setTagType(TAG_TYPE.EMPTY, serialNumber);
-                    showStatus('New empty tag detected. You can now create content for this tag.');
+                    showStatus('New empty tag detected. You can now create content for this tag.', 'success');
                     showTagForm(false);
                     stateManager.finishOperation();
                 }
             } catch (error) {
-                showStatus(`Error reading tag: ${error.message || error}`, true);
+                showStatus(`Error reading tag: ${error.message || error}`, 'error');
                 stateManager.finishOperation();
                 showWelcomeScreen();
             }
         },
         (error) => {
-            showStatus(error, true);
+            showStatus(error, 'error');
             stateManager.finishOperation();
             showWelcomeScreen();
         },
