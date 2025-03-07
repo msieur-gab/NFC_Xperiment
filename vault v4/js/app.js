@@ -403,10 +403,11 @@ async function startNFCWrite() {
                     nfcScanAnimation.hide();
                     
                     // Show success notification
-                    UI.showSuccessNotification(
-                        'Tag Created Successfully', 
-                        'Your NFC tag has been written with the new information.'
-                    );
+                    // UI.showSuccessNotification(
+                    //     'Tag Created Successfully', 
+                    //     'Your NFC tag has been written with the new information.'
+                    // );
+                    showStatus('Tag Created Successfully');
                     
                     // Stop scanning
                     await NFC.stopNfcScan();
