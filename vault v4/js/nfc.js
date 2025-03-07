@@ -5,7 +5,6 @@
 
 // Store the global NFC reader instance
 let ndefReader = null;
-let currentScanMode = null;
 
 // Check if NFC is supported on the device
 function isNfcSupported() {
@@ -13,34 +12,21 @@ function isNfcSupported() {
 }
 
 // Start NFC scanning
-async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
+async function startNfcScan(readingCallback, errorCallback) {
     if (!isNfcSupported()) {
         errorCallback('NFC not supported on this device or browser');
         return false;
     }
     
-    // Stop any existing scan first
-    await stopNfcScan();
-    
     try {
-        // Create a new reader
-        ndefReader = new NDEFReader();
-        currentScanMode = mode;
+        if (ndefReader) {
+            await stopNfcScan();
+        }
         
-        // Wrap the reading callback to handle different modes
-        const wrappedReadingCallback = (event) => {
-            // If in write mode, only log the event
-            if (currentScanMode === 'WRITE') {
-                console.log('Tag detected in write mode', event);
-                return;
-            }
-            
-            // Call original reading callback for read mode
-            readingCallback(event);
-        };
+        ndefReader = new NDEFReader();
         
         // Set up reading event handler
-        ndefReader.addEventListener('reading', wrappedReadingCallback);
+        ndefReader.addEventListener('reading', readingCallback);
         
         // Set up error handler
         ndefReader.addEventListener('error', (error) => {
@@ -50,15 +36,10 @@ async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
         
         // Start scanning
         await ndefReader.scan();
-        console.log(`NFC scanning started in ${mode} mode`);
+        console.log('NFC scanning started');
         return true;
     } catch (error) {
         console.error('Error starting NFC scan:', error);
-        
-        // Reset reader state
-        ndefReader = null;
-        currentScanMode = null;
-        
         if (error.name === 'NotAllowedError') {
             errorCallback('NFC permission denied. Make sure NFC is enabled in your device settings.');
         } else if (error.name === 'NotSupportedError') {
@@ -77,88 +58,36 @@ async function stopNfcScan() {
             // Different browsers may implement different methods to stop scanning
             if (typeof ndefReader.stop === 'function') {
                 await ndefReader.stop();
+            } else if (typeof ndefReader.stopScan === 'function') {
+                await ndefReader.stopScan();
             } else if (typeof ndefReader.close === 'function') {
                 await ndefReader.close();
             }
             
-            // Reset state
+            // Clear event listeners
             ndefReader = null;
-            currentScanMode = null;
-            console.log('NFC scan stopped successfully');
+            return true;
         } catch (error) {
             console.error('Error stopping NFC scan:', error);
+            return false;
         }
     }
+    return true;
 }
 
 // Write records to NFC tag
 async function writeNfcTag(records) {
-    // Validate records
-    if (!records || records.length < 3) {
-        throw new Error('Insufficient records for NFC tag writing');
-    }
-
-    // Track write attempts
-    let writeAttempts = 0;
-    const MAX_WRITE_ATTEMPTS = 3;
-
-    while (writeAttempts < MAX_WRITE_ATTEMPTS) {
-        try {
-            // Ensure we're in a valid state for writing
-            if (!ndefReader) {
-                ndefReader = new NDEFReader();
-                currentScanMode = 'WRITE';
-            }
-            
-            // Ensure we're scanning
-            if (currentScanMode !== 'WRITE') {
-                await ndefReader.scan();
-                currentScanMode = 'WRITE';
-            }
-            
-            // Write records to tag
-            await ndefReader.write({ records });
-            console.log('Records successfully written to tag');
-            
-            return true;
-        } catch (error) {
-            writeAttempts++;
-            console.warn(`Write attempt ${writeAttempts} failed:`, error);
-            
-            // Reset reader for next attempt
-            try {
-                await stopNfcScan();
-            } catch (stopError) {
-                console.error('Error stopping scan:', stopError);
-            }
-            
-            // If it's the last attempt, throw the error
-            if (writeAttempts >= MAX_WRITE_ATTEMPTS) {
-                console.error('Detailed Write Tag Error:', {
-                    name: error.name,
-                    message: error.message,
-                    stack: error.stack
-                });
-                
-                // More specific error handling
-                if (error.name === 'NotAllowedError') {
-                    throw new Error('NFC permission denied. Check device settings.');
-                } else if (error.name === 'NotSupportedError') {
-                    throw new Error('NFC writing not supported on this device.');
-                } else if (error.name === 'NetworkError') {
-                    throw new Error('NFC write failed: Unable to communicate with the tag.');
-                } else {
-                    throw new Error(`NFC write failed: ${error.message}`);
-                }
-            }
-            
-            // Wait a moment before retrying
-            await new Promise(resolve => setTimeout(resolve, 500));
-        }
+    if (!ndefReader) {
+        throw new Error('NFC reader not initialized');
     }
     
-    // Fallback error (should not reach here)
-    throw new Error('Maximum NFC write attempts exceeded');
+    try {
+        await ndefReader.write({ records });
+        return true;
+    } catch (error) {
+        console.error('Error writing to NFC tag:', error);
+        throw error;
+    }
 }
 
 // Extract all text records from NDEF message
@@ -212,26 +141,15 @@ function extractUrl(message) {
 }
 
 // Parse NFC data structure from message
-// Parse NFC data structure from message
-function parseVaultTag(message, isWritingMode = false) {
-    console.log('Parsing Vault Tag - Writing Mode:', isWritingMode);
-    
-    // If we're in write mode, always return null to allow writing
-    if (isWritingMode === true) {
-        console.log('In write mode, allowing tag writing');
+ function parseVaultTag(message, isWritingMode = false) {
+    // If we're in write mode, don't try to parse the tag
+    if (isWritingMode) {
+        console.log('In write mode, skipping tag parsing');
         return null;
     }
 
-    // If no message or no records, consider it a new/blank tag
-    if (!message || !message.records || message.records.length === 0) {
-        console.log('Blank or empty NFC tag detected');
-        return null;
-    }
-
-    // Minimum number of records needed for a valid vault tag
-    if (message.records.length < 3) {
-        console.log('Not enough records (need at least 3)');
-        return null;
+    if (!message || !message.records || message.records.length < 3) {
+        return null; // Need at least URL, metadata, and owner
     }
     
     const result = {
@@ -243,35 +161,26 @@ function parseVaultTag(message, isWritingMode = false) {
     
     // Extract service URL
     result.serviceUrl = extractUrl(message);
-    console.log('Extracted Service URL:', result.serviceUrl);
     
     // Extract text records
     const textRecords = extractTextRecords(message);
-    console.log('Extracted Text Records:', textRecords);
     
     // Find and categorize records
     for (const record of textRecords) {
-        console.log('Processing record:', record);
-        
         if (record.version && record.iv) {
             result.metadata = record;
-            console.log('Metadata found:', result.metadata);
         } else if (record.t === 'o') {
             result.owner = record;
-            console.log('Owner record found:', result.owner);
         } else if (record.t === 'r') {
             result.readers.push(record);
-            console.log('Reader record found:', record);
         }
     }
     
     // Check if we have the minimum required data
     if (!result.metadata || !result.owner) {
-        console.log('Missing metadata or owner record');
         return null;
     }
     
-    console.log('Final parsed result:', result);
     return result;
 }
 
