@@ -71,31 +71,39 @@ async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
     }
 }
 
-// Stop NFC scanning
+// Stop NFC scanning (fixed version)
 async function stopNfcScan() {
     if (ndefReader) {
         try {
             // Different browsers may implement different methods to stop scanning
             if (typeof ndefReader.stop === 'function') {
-                await ndefReader.stop();
+                try {
+                    await ndefReader.stop();
+                } catch (e) {
+                    console.log('Error calling ndefReader.stop():', e);
+                }
             } else if (typeof ndefReader.stopScan === 'function') {
-                await ndefReader.stopScan();
+                try {
+                    await ndefReader.stopScan();
+                } catch (e) {
+                    console.log('Error calling ndefReader.stopScan():', e);
+                }
             } else if (typeof ndefReader.close === 'function') {
-                await ndefReader.close();
+                try {
+                    await ndefReader.close();
+                } catch (e) {
+                    console.log('Error calling ndefReader.close():', e);
+                }
             }
-            
-            // Clear the reader and mode
-            ndefReader = null;
-            currentScanMode = null;
-            console.log('NFC scan stopped successfully');
-            return true;
         } catch (error) {
             console.error('Error stopping NFC scan:', error);
-            // Still clear the reader reference in case of error
+        } finally {
+            // Always clear the reader reference and mode to prevent stale state
             ndefReader = null;
             currentScanMode = null;
-            return false;
+            console.log('NFC reader reference cleared');
         }
+        return true;
     }
     console.log('No active NFC scan to stop');
     return true;
