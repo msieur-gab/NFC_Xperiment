@@ -594,6 +594,7 @@ async function updateExistingTag() {
 }
 
 // Perform tag update with given PIN
+// Perform tag update with given PIN
 async function performTagUpdate(ownerKey, pin) {
     // Set writing mode
     isWritingMode = true;
@@ -612,69 +613,74 @@ async function performTagUpdate(ownerKey, pin) {
         // Start NFC operation
         currentNfcOperation = 'UPDATING';
         
-        // Make sure any existing NFC scan is stopped before starting a new one
+        // Make sure any existing NFC scan is stopped
         try {
-            await NFC.stopNfcScan();
+            if (ndefReader) { // This assumes ndefReader is accessible, if not, use NFC.stopNfcScan()
+                await NFC.stopNfcScan();
+                console.log('Stopped existing NFC scan');
+            }
         } catch (e) {
-            // Ignore errors when stopping non-existent scan
+            console.log('No active NFC scan to stop');
         }
         
-        // Start NFC scanning after a small delay to ensure clean initialization
-        setTimeout(async () => {
-            try {
-                await NFC.startNfcScan(
-                    async ({ message, serialNumber }) => {
-                        console.log(`Tag detected for updating. Serial: ${serialNumber}`);
+        // Wait a moment to ensure NFC system is reset
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        try {
+            console.log('Starting NFC scan for writing...');
+            // Initialize NFC reader
+            await NFC.startNfcScan(
+                async ({ message, serialNumber }) => {
+                    console.log(`Tag detected for updating. Serial: ${serialNumber}`);
+                    
+                    try {
+                        // Write records to tag
+                        await NFC.writeNfcTag(records);
                         
-                        try {
-                            // Write records to tag
-                            await NFC.writeNfcTag(records);
-                            
-                            // Hide scanning animation
-                            nfcScanAnimation.hide();
-                            
-                            // Show success notification
-                            UI.showSuccessNotification(
-                                'Tag Updated Successfully', 
-                                'Your NFC tag has been updated with the new information.'
-                            );
-                            
-                            // Update current tag data
-                            currentTagData = tagData;
-                            
-                            // Stop scanning
-                            await NFC.stopNfcScan();
-                            
-                            // Reset operation state
-                            currentNfcOperation = 'IDLE';
-                            isWritingMode = false;
-                            
-                            // Clear any pending tag data
-                            pendingTagData = null;
-                        } catch (error) {
-                            nfcScanAnimation.hide();
-                            showStatus(`Error updating tag: ${error.message || error}`, true);
-                            console.error(`Update Error:`, error);
-                            currentNfcOperation = 'IDLE';
-                            isWritingMode = false;
-                            await NFC.stopNfcScan();
-                        }
-                    },
-                    (error) => {
+                        // Hide scanning animation
                         nfcScanAnimation.hide();
-                        showStatus(`NFC error: ${error}`, true);
+                        
+                        // Show success notification
+                        UI.showSuccessNotification(
+                            'Tag Updated Successfully', 
+                            'Your NFC tag has been updated with the new information.'
+                        );
+                        
+                        // Update current tag data
+                        currentTagData = tagData;
+                        
+                        // Stop scanning
+                        await NFC.stopNfcScan();
+                        
+                        // Reset operation state
                         currentNfcOperation = 'IDLE';
                         isWritingMode = false;
-                    },
-                    'WRITE' // Specify WRITE mode
-                );
-            } catch (error) {
-                nfcScanAnimation.hide();
-                showStatus(`Failed to start NFC scan: ${error.message || error}`, true);
-                currentNfcOperation = 'IDLE';
-                isWritingMode = false;
-            }
-        }, 300); // Small delay to ensure clean initialization
+                        
+                        // Clear any pending tag data
+                        pendingTagData = null;
+                    } catch (error) {
+                        nfcScanAnimation.hide();
+                        showStatus(`Error updating tag: ${error.message || error}`, true);
+                        console.error(`Update Error:`, error);
+                        currentNfcOperation = 'IDLE';
+                        isWritingMode = false;
+                        await NFC.stopNfcScan();
+                    }
+                },
+                (error) => {
+                    nfcScanAnimation.hide();
+                    showStatus(`NFC error: ${error}`, true);
+                    currentNfcOperation = 'IDLE';
+                    isWritingMode = false;
+                },
+                'WRITE' // Specify WRITE mode
+            );
+        } catch (error) {
+            nfcScanAnimation.hide();
+            showStatus(`Failed to start NFC scan: ${error.message || error}`, true);
+            currentNfcOperation = 'IDLE';
+            isWritingMode = false;
+        }
     } catch (error) {
         nfcScanAnimation.hide();
         showStatus(`Error preparing tag data: ${error.message || error}`, true);
