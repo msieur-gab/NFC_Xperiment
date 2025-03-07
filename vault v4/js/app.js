@@ -33,11 +33,11 @@ let currentCancelCallback = null;
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize custom components first
-    initializeComponents();
-    
-    // Initialize DOM elements
+    // Initialize DOM elements first
     initializeElements();
+    
+    // Initialize custom components 
+    initializeComponents();
     
     // Set up event listeners
     setupEventListeners();
@@ -45,11 +45,14 @@ document.addEventListener('DOMContentLoaded', () => {
     // Set up password toggle buttons
     UI.setupPasswordToggles();
     
-    // Check NFC support
-    checkNfcSupport();
+    // Wait a moment for custom elements to be fully defined
+    setTimeout(() => {
+        // Check NFC support
+        checkNfcSupport();
 
-    // Initialize app state
-    initializeApp();
+        // Initialize app state
+        initializeApp();
+    }, 50);
 });
 
 // Initialize custom components
@@ -209,12 +212,17 @@ function showStatus(message, isError = false) {
     // Always use standard status display
     UI.showStatus(message, isError);
     
-    // Also show toast when available
-    if (toast) {
+    // Also show toast when available - check for component and method
+    if (toast && typeof toast.error === 'function' && typeof toast.info === 'function') {
         if (isError) {
             toast.error(message);
         } else {
             toast.info(message);
+        }
+    } else {
+        // If toast component is not ready, just log the message
+        if (window.DEBUG_MODE && console) {
+            console.log(`Toast component not ready yet, message: ${message}`);
         }
     }
     
@@ -947,36 +955,3 @@ async function scanTag() {
         showWelcomeScreen();
     }
 }
-
-// Handle form submission (either create or update)
-async function handleTagFormSubmit() {
-    if (appState === 'EDIT_TAG') {
-        await updateExistingTag();
-    } else {
-        await startNFCWrite();
-    }
-}
-
-// Reset form fields
-function resetFormFields() {
-    elements.ownerKey.value = '';
-    elements.ownerPin.value = '';
-    document.getElementById('readersList').innerHTML = '';
-    readers = [];
-    
-    // Hide change PIN section in create mode
-    elements.changePinSection.style.display = 'none';
-}
-
-// Patch NFC.parseVaultTag to handle writing mode
-const originalParseVaultTag = NFC.parseVaultTag;
-NFC.parseVaultTag = function(message) {
-    // If we're in write mode, don't try to parse the tag
-    if (isWritingMode) {
-        console.log('In write mode, skipping tag parsing');
-        return null;
-    }
-    
-    // Otherwise, use the original function
-    return originalParseVaultTag(message);
-};
