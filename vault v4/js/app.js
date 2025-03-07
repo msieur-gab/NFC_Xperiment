@@ -388,7 +388,7 @@ async function startNFCWrite() {
         
         // Show scanning animation
         nfcScanAnimation.show('write', 'Writing to NFC tag...');
-        showStatus('Please bring the NFC tag to the back of your device to write data');
+        // showStatus('Please bring the NFC tag to the back of your device to write data');
         
         // Start NFC scanning
         await NFC.startNfcScan(
@@ -606,7 +606,7 @@ async function performTagUpdate(ownerKey, pin) {
     
     // Show scanning animation
     nfcScanAnimation.show('write', 'Updating NFC tag...');
-    showStatus('Please bring the same NFC tag to the back of your device');
+    // showStatus('Please bring the same NFC tag to the back of your device');
     
     try {
         // Prepare updated tag data structure
@@ -735,7 +735,7 @@ async function scanTag() {
     
     // Show scanning animation
     nfcScanAnimation.show('scan', 'Scanning NFC tag...');
-    showStatus('Please bring the NFC tag to the back of your device');
+    // showStatus('Please bring the NFC tag to the back of your device');
     
     // Start NFC scanning with READ mode
     await NFC.startNfcScan(
