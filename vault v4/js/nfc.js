@@ -141,7 +141,13 @@ function extractUrl(message) {
 }
 
 // Parse NFC data structure from message
-function parseVaultTag(message) {
+ function parseVaultTag(message, isWritingMode = false) {
+    // If we're in write mode, don't try to parse the tag
+    if (isWritingMode) {
+        console.log('In write mode, skipping tag parsing');
+        return null;
+    }
+
     if (!message || !message.records || message.records.length < 3) {
         return null; // Need at least URL, metadata, and owner
     }

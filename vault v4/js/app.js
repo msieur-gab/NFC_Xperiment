@@ -839,9 +839,11 @@ function resetFormFields() {
     elements.changePinSection.style.display = 'none';
 }
 
+
+
 // Patch NFC.parseVaultTag to handle writing mode
-const originalParseVaultTag = NFC.parseVaultTag;
-NFC.parseVaultTag = function(message) {
+const originalParseVaultTag = NFC.parseVaultTag(message, isWritingMode);
+NFC.parseVaultTag(message, isWritingMode) = function(message) {
     // If we're in write mode, don't try to parse the tag
     if (isWritingMode) {
         console.log('In write mode, skipping tag parsing');
