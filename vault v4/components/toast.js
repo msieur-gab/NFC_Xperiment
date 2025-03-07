@@ -7,15 +7,20 @@ class ToastNotification extends HTMLElement {
     this._visible = false;
     this._timeout = null;
     this._queue = [];
+    this._position = 'bottom'; // Default position: 'bottom' or 'top'
   }
   
   static get observedAttributes() {
-    return ['duration'];
+    return ['duration', 'position'];
   }
   
   attributeChangedCallback(name, oldValue, newValue) {
     if (name === 'duration') {
       this.duration = parseInt(newValue, 10) || 3000;
+    }
+    if (name === 'position' && ['top', 'bottom'].includes(newValue)) {
+      this._position = newValue;
+      this.updatePosition();
     }
   }
   
@@ -25,6 +30,26 @@ class ToastNotification extends HTMLElement {
   
   set duration(val) {
     this._duration = val;
+  }
+  
+  get position() {
+    return this._position;
+  }
+  
+  set position(val) {
+    if (['top', 'bottom'].includes(val)) {
+      this._position = val;
+      this.updatePosition();
+    }
+  }
+  
+  updatePosition() {
+    const container = this.shadowRoot.querySelector('.toast-container');
+    if (!container) return;
+    
+    // Update CSS variables based on position
+    this.style.setProperty('--toast-position-bottom', this._position === 'bottom' ? '20px' : 'auto');
+    this.style.setProperty('--toast-position-top', this._position === 'top' ? '20px' : 'auto');
   }
   
   show(message, type = 'info', duration = null) {
@@ -121,8 +146,12 @@ class ToastNotification extends HTMLElement {
     this.shadowRoot.innerHTML = `
       <style>
         :host {
+          --toast-position-top: auto;
+          --toast-position-bottom: 20px;
+          
           position: fixed;
-          bottom: 20px;
+          bottom: var(--toast-position-bottom);
+          top: var(--toast-position-top);
           left: 50%;
           transform: translateX(-50%);
           z-index: 1000;
@@ -141,6 +170,10 @@ class ToastNotification extends HTMLElement {
           transform: translateY(20px);
           transition: transform 0.3s, opacity 0.3s;
           pointer-events: none;
+        }
+        
+        :host([position="top"]) .toast-container {
+          transform: translateY(-20px);
         }
         
         .toast-container.visible {
@@ -211,6 +244,9 @@ class ToastNotification extends HTMLElement {
         <div class="toast-message"></div>
       </div>
     `;
+    
+    // Initialize position
+    this.updatePosition();
   }
 }
 
