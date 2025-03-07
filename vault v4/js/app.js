@@ -313,7 +313,8 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
     }
     
     // Get the current URL to use as the service URL
-    const serviceUrl = window.location.origin + window.location.pathname + "?action=read";
+    // const serviceUrl = window.location.origin + window.location.pathname + "?action=read";
+    const serviceUrl = window.location.origin + window.location.pathname;
 
     // Prepare metadata record
     const metadataRecord = {
