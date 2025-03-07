@@ -79,10 +79,14 @@ async function stopNfcScan() {
 
 // Write records to NFC tag
 async function writeNfcTag(records) {
+    // Validate records
+    if (!records || records.length < 3) {
+        throw new Error('Insufficient records for NFC tag writing');
+    }
+
     // Ensure NFC reader is initialized
     if (!ndefReader) {
         try {
-            // Reinitialize the NFC reader if it's not present
             ndefReader = new NDEFReader();
             console.log('NFC reader reinitialized');
         } catch (initError) {
@@ -92,11 +96,11 @@ async function writeNfcTag(records) {
     }
     
     try {
-        // Ensure the reader is ready and scanning
+        // Scan before writing
         await ndefReader.scan();
         console.log('NFC scan started before writing');
         
-        // Prepare write options
+        // Write options with full record set
         const writeOptions = { 
             records: records,
             overwrite: true  // Attempt to overwrite existing records
@@ -178,21 +182,23 @@ function extractUrl(message) {
 }
 
 // Parse NFC data structure from message
+// Parse NFC data structure from message
 function parseVaultTag(message, isWritingMode = false) {
     console.log('Parsing Vault Tag - Writing Mode:', isWritingMode);
     
+    // If we're in write mode, always return null to allow writing
     if (isWritingMode === true) {
-        console.log('In write mode, skipping tag parsing');
+        console.log('In write mode, allowing tag writing');
         return null;
     }
 
-    if (!message || !message.records) {
-        console.log('No records in message');
+    // If no message or no records, consider it a new/blank tag
+    if (!message || !message.records || message.records.length === 0) {
+        console.log('Blank or empty NFC tag detected');
         return null;
     }
 
-    console.log('Number of records:', message.records.length);
-    
+    // Minimum number of records needed for a valid vault tag
     if (message.records.length < 3) {
         console.log('Not enough records (need at least 3)');
         return null;
