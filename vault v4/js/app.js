@@ -799,6 +799,8 @@ async function scanTag() {
                         }
                     }
                     
+                     // Ensure animation is hidden before showing PIN modal
+                     nfcScanAnimation.hide();
                     // Show PIN modal if no cached PIN or if cached PIN failed
                     showPinModal(
                         // On PIN submit
@@ -826,20 +828,24 @@ async function scanTag() {
                     stateManager.setTagType(TAG_TYPE.INVALID, serialNumber);
                     showStatus('This tag contains data not compatible with NFC Vault. You must clear this tag before using it.', 'warning');
                     stateManager.finishOperation();
+                    nfcScanAnimation.hide();
                 } else {
                     // It's an empty tag
                     stateManager.setTagType(TAG_TYPE.EMPTY, serialNumber);
                     showStatus('New empty tag detected. You can now create content for this tag.', 'success');
                     showTagForm(false);
                     stateManager.finishOperation();
+                    nfcScanAnimation.hide();
                 }
             } catch (error) {
+                nfcScanAnimation.hide();
                 showStatus(`Error reading tag: ${error.message || error}`, 'error');
                 stateManager.finishOperation();
                 showWelcomeScreen();
             }
         },
         (error) => {
+            nfcScanAnimation.hide();
             showStatus(error, 'error');
             stateManager.finishOperation();
             showWelcomeScreen();
