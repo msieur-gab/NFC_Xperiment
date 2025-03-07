@@ -3,6 +3,7 @@
  * Main controller that integrates all modules with cleaner component usage
  */
 
+
 // Import modules
 import * as Crypto from './crypto.js';
 import * as NFC from './nfc.js';
