@@ -306,14 +306,15 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
         // Use existing IV from current tag data (for updates)
         ivBase64 = currentTagData.metadata.iv;
         iv = Crypto.base64ToArrayBuffer(ivBase64);
+        console.log('Using existing IV:', ivBase64);
     } else {
         // Generate new IV
         iv = Crypto.generateIV();
         ivBase64 = Crypto.arrayBufferToBase64(iv);
+        console.log('Generated new IV:', ivBase64);
     }
     
     // Get the current URL to use as the service URL
-    // const serviceUrl = window.location.origin + window.location.pathname + "?action=read";
     const serviceUrl = window.location.origin + window.location.pathname;
 
     // Prepare metadata record
@@ -349,14 +350,16 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
     }
     
     // Create the complete structure
-    return {
+    const tagData = {
         serviceUrl: serviceUrl,
         metadata: metadataRecord,
         owner: ownerRecord,
         readers: readerRecords
     };
-}
 
+    console.log('Prepared Tag Data:', tagData);
+    return tagData;
+}
 // Start NFC write operation
 async function startNFCWrite() {
     if (!checkNfcSupport()) return;
@@ -612,10 +615,12 @@ async function performTagUpdate(ownerKey, pin) {
     try {
         // Prepare updated tag data structure
         const tagData = await prepareTagDataStructure(ownerKey, pin, false);
-        
+        console.log('Prepared Tag Data for Update:', tagData);
+
         // Prepare records for writing
         const records = NFC.prepareTagRecords(tagData);
-        
+        console.log('Prepared Records for Writing:', records);
+
         // Start NFC operation
         currentNfcOperation = 'UPDATING';
         
@@ -665,6 +670,8 @@ async function performTagUpdate(ownerKey, pin) {
                         // Clear any pending tag data
                         pendingTagData = null;
                     } catch (error) {
+                        console.error('Write Tag Error:', error);
+
                         nfcScanAnimation.hide();
                         showStatus(`Error updating tag: ${error.message || error}`, true);
                         console.error(`Update Error:`, error);
@@ -674,6 +681,7 @@ async function performTagUpdate(ownerKey, pin) {
                     }
                 },
                 (error) => {
+                    console.error('NFC Scan Error:', error);
                     nfcScanAnimation.hide();
                     showStatus(`NFC error: ${error}`, true);
                     currentNfcOperation = 'IDLE';
@@ -682,12 +690,16 @@ async function performTagUpdate(ownerKey, pin) {
                 'WRITE' // Specify WRITE mode
             );
         } catch (error) {
+            console.error('Start NFC Scan Error:', error);
+
             nfcScanAnimation.hide();
             showStatus(`Failed to start NFC scan: ${error.message || error}`, true);
             currentNfcOperation = 'IDLE';
             isWritingMode = false;
         }
     } catch (error) {
+        console.error('Prepare Tag Data Error:', error);
+
         nfcScanAnimation.hide();
         showStatus(`Error preparing tag data: ${error.message || error}`, true);
         isWritingMode = false;
