@@ -12,7 +12,7 @@ function isNfcSupported() {
 }
 
 // Start NFC scanning
-async function startNfcScan(readingCallback, errorCallback) {
+async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
     if (!isNfcSupported()) {
         errorCallback('NFC not supported on this device or browser');
         return false;
@@ -36,7 +36,7 @@ async function startNfcScan(readingCallback, errorCallback) {
         
         // Start scanning
         await ndefReader.scan();
-        console.log('NFC scanning started');
+        console.log(`NFC scanning started in ${mode} mode`);
         return true;
     } catch (error) {
         console.error('Error starting NFC scan:', error);
@@ -141,15 +141,24 @@ function extractUrl(message) {
 }
 
 // Parse NFC data structure from message
- function parseVaultTag(message, isWritingMode = false) {
+function parseVaultTag(message, isWritingMode = false) {
     // If we're in write mode, don't try to parse the tag
     if (isWritingMode) {
         console.log('In write mode, skipping tag parsing');
         return null;
     }
 
-    if (!message || !message.records || message.records.length < 3) {
-        return null; // Need at least URL, metadata, and owner
+    // Check if we have valid message data
+    if (!message || !message.records) {
+        console.log('No message or records found');
+        return null;
+    }
+    
+    // Check if this looks like a valid vault tag
+    // Vault tags should have at least 3 records (URL, metadata, owner)
+    if (message.records.length < 3) {
+        console.log('Too few records for a vault tag:', message.records.length);
+        return null;
     }
     
     const result = {
@@ -165,19 +174,30 @@ function extractUrl(message) {
     // Extract text records
     const textRecords = extractTextRecords(message);
     
+    if (textRecords.length < 2) {
+        console.log('Not enough text records for a valid tag');
+        return null;
+    }
+    
     // Find and categorize records
     for (const record of textRecords) {
-        if (record.version && record.iv) {
-            result.metadata = record;
-        } else if (record.t === 'o') {
-            result.owner = record;
-        } else if (record.t === 'r') {
-            result.readers.push(record);
+        // Check if this is a metadata record (has version and iv)
+        if (record && typeof record === 'object') {
+            if (record.version && record.iv) {
+                result.metadata = record;
+            } else if (record.t === 'o') {
+                // Owner record
+                result.owner = record;
+            } else if (record.t === 'r') {
+                // Reader record
+                result.readers.push(record);
+            }
         }
     }
     
     // Check if we have the minimum required data
     if (!result.metadata || !result.owner) {
+        console.log('Missing metadata or owner information');
         return null;
     }
     

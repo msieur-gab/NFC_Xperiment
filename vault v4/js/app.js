@@ -1,23 +1,18 @@
 /**
  * NFC Vault Main Application
- * Main controller that integrates all modules with cleaner component usage
+ * Main controller that integrates all modules with state management
  */
 
 // Import modules
 import * as Crypto from './crypto.js';
 import * as NFC from './nfc.js';
 import * as UI from './ui.js';
+import { NFCStateManager, NFC_OPERATION, APP_STATE, TAG_TYPE } from './state-manager.js';
 
 // State variables
 let readers = [];
-let currentNfcOperation = 'IDLE'; // IDLE, READING, WRITING, UPDATING
-let currentTagData = null;
-let pendingTagData = null;
-let isWritingMode = false;
-let appState = 'WELCOME'; // WELCOME, CREATE_TAG, EDIT_TAG
-let cachedPin = null;
-let pinCacheTimeout = null;
-const PIN_CACHE_DURATION = 120000; // 2 minutes in milliseconds
+let currentPinCallback = null;
+let currentCancelCallback = null;
 
 // Component references
 let toast;
@@ -27,9 +22,8 @@ let pinInput;
 // DOM Elements
 const elements = {};
 
-// Store callbacks for PIN modal
-let currentPinCallback = null;
-let currentCancelCallback = null;
+// Initialize the state manager
+let stateManager;
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
@@ -38,6 +32,9 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize DOM elements
     initializeElements();
+    
+    // Initialize state manager
+    initializeStateManager();
     
     // Set up event listeners
     setupEventListeners();
@@ -82,6 +79,82 @@ function initializeElements() {
     elements.cancelPinButton = document.getElementById('cancel-pin');
 }
 
+// Initialize state manager
+function initializeStateManager() {
+    const callbacks = {
+        onAppStateChange: handleAppStateChange,
+        onTagTypeChange: handleTagTypeChange
+    };
+    
+    stateManager = new NFCStateManager(callbacks, elements);
+    
+    // Subscribe to state changes
+    stateManager.subscribe((property, newValue, oldValue) => {
+        console.debug(`State changed: ${property}`, newValue);
+        
+        // Handle specific state changes
+        if (property === 'nfcOperation') {
+            updateNfcOperationUI(newValue);
+        }
+    });
+}
+
+// Update UI based on NFC operation changes
+function updateNfcOperationUI(operation) {
+    // Update scanning animation based on operation
+    if (operation === NFC_OPERATION.READING) {
+        nfcScanAnimation.show('scan', 'Scanning NFC tag...');
+    } else if (operation === NFC_OPERATION.WRITING) {
+        nfcScanAnimation.show('write', 'Writing to NFC tag...');
+    } else if (operation === NFC_OPERATION.UPDATING) {
+        nfcScanAnimation.show('write', 'Updating NFC tag...');
+    } else {
+        nfcScanAnimation.hide();
+    }
+}
+
+// Handle app state changes
+function handleAppStateChange(newState, oldState) {
+    // Update UI based on app state
+    if (newState === APP_STATE.WELCOME) {
+        elements.tagForm.style.display = 'none';
+        elements.welcomeSection.style.display = 'block';
+        elements.tagPreview.style.display = 'none';
+    } else if (newState === APP_STATE.CREATE_TAG || newState === APP_STATE.EDIT_TAG) {
+        const isEditing = newState === APP_STATE.EDIT_TAG;
+        
+        elements.welcomeSection.style.display = 'none';
+        elements.tagForm.style.display = 'block';
+        elements.tagPreview.style.display = 'none';
+        
+        // Update UI elements based on mode
+        document.getElementById('form-title').textContent = isEditing ? 'Edit NFC Tag' : 'Create New NFC Tag';
+        elements.submitButton.textContent = isEditing ? 'Update Tag' : 'Write to NFC Tag';
+        
+        // Show/hide the change PIN section based on mode
+        elements.changePinSection.style.display = isEditing ? 'block' : 'none';
+        
+        // In edit mode, some fields might be read-only
+        elements.ownerKey.readOnly = isEditing;
+        
+        // Reset form fields if creating new tag
+        if (!isEditing) {
+            resetFormFields();
+        }
+    }
+}
+
+// Handle tag type changes
+function handleTagTypeChange(tagType, serialNumber) {
+    if (tagType === TAG_TYPE.VAULT) {
+        showStatus(`Detected NFC Vault tag: ${serialNumber || 'Unknown'}`);
+    } else if (tagType === TAG_TYPE.EMPTY) {
+        showStatus('Empty NFC tag detected. You can now create new content.');
+    } else if (tagType === TAG_TYPE.INVALID) {
+        showStatus('Invalid tag format detected. This tag contains data not compatible with NFC Vault.', true);
+    }
+}
+
 // Set up event listeners
 function setupEventListeners() {
     // Generate buttons
@@ -103,10 +176,10 @@ function setupEventListeners() {
 
 // Set up PIN modal event handlers
 function setupPinModalHandlers() {
-    // Set up the submit button handler - use direct reference
+    // Set up the submit button handler
     elements.submitPinButton.onclick = handlePinSubmit;
     
-    // Set up the cancel button handler - use direct reference
+    // Set up the cancel button handler
     elements.cancelPinButton.onclick = handlePinCancel;
     
     // If the PIN input component is available, set up its complete event
@@ -287,6 +360,7 @@ function showTagPreview() {
         .then(tagData => {
             // Show preview
             UI.showTagPreview(tagData, ownerKey, ownerPin, readers);
+            elements.tagPreview.style.display = 'block';
         })
         .catch(error => {
             showStatus(`Error preparing tag data: ${error.message}`, true);
@@ -295,6 +369,9 @@ function showTagPreview() {
 
 // Prepare tag data structure with encryption
 async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false) {
+    // Get current tag data from state manager
+    const currentTagData = stateManager.currentTagData;
+    
     // Generate a random IV for AES or use existing one
     let iv, ivBase64;
     
@@ -317,10 +394,7 @@ async function prepareTagDataStructure(ownerKey, ownerPin, useExistingIV = false
         iv: ivBase64
     };
     
-    // With CryptoJS, we use PIN directly as key
-    const { derivedKey } = await Crypto.deriveKey(ownerPin);
-    
-    // Encrypt owner data - using PIN directly
+    // Encrypt owner data - using PIN directly as key
     const encryptedOwnerKey = await Crypto.encrypt(ownerKey, ownerPin, iv);
     
     // Create owner record
@@ -369,8 +443,11 @@ async function startNFCWrite() {
         return;
     }
     
-    // Set writing mode
-    isWritingMode = true;
+    // Check if we can start writing
+    if (!stateManager.canStartOperation(NFC_OPERATION.WRITING)) {
+        showStatus(`Cannot start writing while in ${stateManager.nfcOperation} state`, true);
+        return;
+    }
     
     try {
         // Prepare tag data
@@ -380,10 +457,9 @@ async function startNFCWrite() {
         const records = NFC.prepareTagRecords(tagData);
         
         // Start NFC operation
-        currentNfcOperation = 'WRITING';
+        stateManager.startWriting(false);
         
-        // Show scanning animation
-        nfcScanAnimation.show('write', 'Writing to NFC tag...');
+        // Show status message
         showStatus('Please bring the NFC tag to the back of your device to write data');
         
         // Start NFC scanning
@@ -395,9 +471,6 @@ async function startNFCWrite() {
                     // Write records to tag
                     await NFC.writeNfcTag(records);
                     
-                    // Hide scanning animation
-                    nfcScanAnimation.hide();
-                    
                     // Show success notification
                     UI.showSuccessNotification(
                         'Tag Created Successfully', 
@@ -408,29 +481,23 @@ async function startNFCWrite() {
                     await NFC.stopNfcScan();
                     
                     // Reset operation state
-                    currentNfcOperation = 'IDLE';
-                    isWritingMode = false;
+                    stateManager.finishOperation();
                 } catch (error) {
-                    nfcScanAnimation.hide();
                     showStatus(`Error writing to tag: ${error.message || error}`, true);
                     console.error(`Write Error:`, error);
-                    currentNfcOperation = 'IDLE';
-                    isWritingMode = false;
+                    stateManager.finishOperation();
                     await NFC.stopNfcScan();
                 }
             },
             (error) => {
-                nfcScanAnimation.hide();
                 showStatus(error, true);
-                currentNfcOperation = 'IDLE';
-                isWritingMode = false;
+                stateManager.finishOperation();
             },
             'WRITE' // Specify WRITE mode
         );
     } catch (error) {
-        nfcScanAnimation.hide();
         showStatus(`Error preparing tag data: ${error.message || error}`, true);
-        isWritingMode = false;
+        stateManager.finishOperation();
     }
 }
 
@@ -448,34 +515,6 @@ function initializeApp() {
         // Show welcome screen
         showWelcomeScreen();
     }
-}
-
-// Cache PIN temporarily
-function cachePin(pin) {
-    // Clear any existing timeout
-    if (pinCacheTimeout) {
-        clearTimeout(pinCacheTimeout);
-    }
-    
-    // Store the PIN in memory
-    cachedPin = pin;
-    
-    // Set a timeout to clear the PIN
-    pinCacheTimeout = setTimeout(() => {
-        clearPinCache();
-    }, PIN_CACHE_DURATION);
-    
-    console.log('PIN cached temporarily for update operations');
-}
-
-// Clear the PIN cache
-function clearPinCache() {
-    cachedPin = null;
-    if (pinCacheTimeout) {
-        clearTimeout(pinCacheTimeout);
-        pinCacheTimeout = null;
-    }
-    console.log('PIN cache cleared');
 }
 
 // Decrypt and load tag data with provided PIN
@@ -511,20 +550,19 @@ async function decryptAndLoadTag(tagData, pin) {
         
         // Store current readers and tag data
         readers = decryptedReaders;
-        currentTagData = tagData;
+        stateManager.setCurrentTagData(tagData);
         
         // Update UI for edit mode
         elements.ownerKey.value = ownerKey;
-        elements.changePinSection.style.display = 'block';
         UI.updateReadersList(readers, 'readersList', removeReader);
         
         showStatus("Tag successfully decrypted and loaded");
         
         // Reset operation state
-        currentNfcOperation = 'IDLE';
+        stateManager.finishOperation();
         
         // If decryption was successful, cache the PIN temporarily
-        cachePin(pin);
+        stateManager.cachePin(pin);
         
         return true;
     } catch (error) {
@@ -537,7 +575,7 @@ async function decryptAndLoadTag(tagData, pin) {
 async function updateExistingTag() {
     if (!checkNfcSupport()) return;
     
-    if (!currentTagData) {
+    if (!stateManager.currentTagData) {
         showStatus('No tag data loaded', true);
         return;
     }
@@ -561,15 +599,14 @@ async function updateExistingTag() {
     }
     
     // If we have a cached PIN, use it without prompting
-    if (cachedPin) {
+    if (stateManager.hasCachedPin()) {
         try {
-            await performTagUpdate(ownerKey, cachedPin);
-            // Extend the PIN cache time since we just used it
-            cachePin(cachedPin);
+            await performTagUpdate(ownerKey, stateManager.getCachedPin());
+            // PIN already cached in state manager, no need to re-cache
         } catch (error) {
             showStatus(`Error: ${error.message}`, true);
             // If there was an error, maybe the PIN is wrong, so clear it
-            clearPinCache();
+            stateManager.clearPinCache();
         }
         return;
     }
@@ -581,7 +618,7 @@ async function updateExistingTag() {
             try {
                 await performTagUpdate(ownerKey, pin);
                 // Cache the PIN for future operations
-                cachePin(pin);
+                stateManager.cachePin(pin);
             } catch (error) {
                 showStatus(`Error: ${error.message}`, true);
             }
@@ -594,31 +631,30 @@ async function updateExistingTag() {
 }
 
 // Perform tag update with given PIN
-// Perform tag update with given PIN
 async function performTagUpdate(ownerKey, pin) {
-    // Set writing mode
-    isWritingMode = true;
+    // Check if we can start updating
+    if (!stateManager.canStartOperation(NFC_OPERATION.UPDATING)) {
+        showStatus(`Cannot start updating while in ${stateManager.nfcOperation} state`, true);
+        return;
+    }
     
-    // Show scanning animation
-    nfcScanAnimation.show('write', 'Updating NFC tag...');
+    // Start update operation
+    stateManager.startWriting(true); // true = update mode
+    
+    // Show status message
     showStatus('Please bring the same NFC tag to the back of your device');
     
     try {
         // Prepare updated tag data structure
-        const tagData = await prepareTagDataStructure(ownerKey, pin, false);
+        const tagData = await prepareTagDataStructure(ownerKey, pin, true);
         
         // Prepare records for writing
         const records = NFC.prepareTagRecords(tagData);
         
-        // Start NFC operation
-        currentNfcOperation = 'UPDATING';
-        
         // Make sure any existing NFC scan is stopped
         try {
-            if (ndefReader) { // This assumes ndefReader is accessible, if not, use NFC.stopNfcScan()
-                await NFC.stopNfcScan();
-                console.log('Stopped existing NFC scan');
-            }
+            await NFC.stopNfcScan();
+            console.log('Stopped existing NFC scan');
         } catch (e) {
             console.log('No active NFC scan to stop');
         }
@@ -627,7 +663,7 @@ async function performTagUpdate(ownerKey, pin) {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         try {
-            console.log('Starting NFC scan for writing...');
+            console.log('Starting NFC scan for updating...');
             // Initialize NFC reader
             await NFC.startNfcScan(
                 async ({ message, serialNumber }) => {
@@ -637,9 +673,6 @@ async function performTagUpdate(ownerKey, pin) {
                         // Write records to tag
                         await NFC.writeNfcTag(records);
                         
-                        // Hide scanning animation
-                        nfcScanAnimation.hide();
-                        
                         // Show success notification
                         UI.showSuccessNotification(
                             'Tag Updated Successfully', 
@@ -647,74 +680,47 @@ async function performTagUpdate(ownerKey, pin) {
                         );
                         
                         // Update current tag data
-                        currentTagData = tagData;
+                        stateManager.setCurrentTagData(tagData);
                         
                         // Stop scanning
                         await NFC.stopNfcScan();
                         
                         // Reset operation state
-                        currentNfcOperation = 'IDLE';
-                        isWritingMode = false;
-                        
-                        // Clear any pending tag data
-                        pendingTagData = null;
+                        stateManager.finishOperation();
                     } catch (error) {
-                        nfcScanAnimation.hide();
                         showStatus(`Error updating tag: ${error.message || error}`, true);
                         console.error(`Update Error:`, error);
-                        currentNfcOperation = 'IDLE';
-                        isWritingMode = false;
+                        stateManager.finishOperation();
                         await NFC.stopNfcScan();
                     }
                 },
                 (error) => {
-                    nfcScanAnimation.hide();
                     showStatus(`NFC error: ${error}`, true);
-                    currentNfcOperation = 'IDLE';
-                    isWritingMode = false;
+                    stateManager.finishOperation();
                 },
                 'WRITE' // Specify WRITE mode
             );
         } catch (error) {
-            nfcScanAnimation.hide();
             showStatus(`Failed to start NFC scan: ${error.message || error}`, true);
-            currentNfcOperation = 'IDLE';
-            isWritingMode = false;
+            stateManager.finishOperation();
         }
     } catch (error) {
-        nfcScanAnimation.hide();
         showStatus(`Error preparing tag data: ${error.message || error}`, true);
-        isWritingMode = false;
+        stateManager.finishOperation();
     }
 }
 
 // Show welcome/onboarding screen
 function showWelcomeScreen() {
-    appState = 'WELCOME';
-    elements.tagForm.style.display = 'none';
-    elements.welcomeSection.style.display = 'block';
-    
-    // Clear PIN cache when returning to welcome screen
-    clearPinCache();
+    stateManager.goToWelcome();
 }
 
 // Show tag form (either for creation or editing)
 function showTagForm(isEditing = false) {
-    appState = isEditing ? 'EDIT_TAG' : 'CREATE_TAG';
-    
-    elements.welcomeSection.style.display = 'none';
-    elements.tagForm.style.display = 'block';
-    
-    // Update UI elements based on mode
-    document.getElementById('form-title').textContent = isEditing ? 'Edit NFC Tag' : 'Create New NFC Tag';
-    elements.submitButton.textContent = isEditing ? 'Update Tag' : 'Write to NFC Tag';
-    
-    // In edit mode, some fields might be read-only
     if (isEditing) {
-        elements.ownerKey.readOnly = true;
+        stateManager.goToEditTag();
     } else {
-        elements.ownerKey.readOnly = false;
-        resetFormFields();
+        stateManager.goToCreateTag();
     }
 }
 
@@ -722,51 +728,45 @@ function showTagForm(isEditing = false) {
 async function scanTag() {
     if (!checkNfcSupport()) return;
     
-    // Check if we're already in writing mode
-    if (isWritingMode) {
-        console.log('Already in writing mode, skipping read operation');
+    // Check if we can start scanning
+    if (!stateManager.canStartOperation(NFC_OPERATION.READING)) {
+        showStatus(`Cannot start scanning while in ${stateManager.nfcOperation} state`, true);
         return;
     }
     
-    // Show scanning animation
-    nfcScanAnimation.show('scan', 'Scanning NFC tag...');
+    // Start NFC reading operation
+    stateManager.startReading();
+    
+    // Show status message
     showStatus('Please bring the NFC tag to the back of your device');
     
     // Start NFC scanning with READ mode
     await NFC.startNfcScan(
         async ({ message, serialNumber }) => {
-            // If we entered writing mode while waiting for a tag, abort the read operation
-            if (isWritingMode) {
-                console.log('Entered writing mode, aborting read operation');
-                nfcScanAnimation.hide();
+            // If we're not in reading mode, abort (might have transitioned to writing)
+            if (stateManager.nfcOperation !== NFC_OPERATION.READING) {
+                console.log('No longer in reading mode, aborting read operation');
                 await NFC.stopNfcScan();
                 return;
             }
             
             try {
                 // Try to parse as a vault tag
-                const tagData = NFC.parseVaultTag(message);
-                
-                // Hide scanning animation
-                nfcScanAnimation.hide();
+                const tagData = NFC.parseVaultTag(message, stateManager.isWritingMode);
                 
                 // Stop NFC scanning
                 await NFC.stopNfcScan();
                 
-                // If we entered writing mode while processing, abort
-                if (isWritingMode) {
-                    console.log('Entered writing mode, aborting read operation');
-                    return;
-                }
-                
+                // Process based on tag type
                 if (tagData) {
-                    // It's an existing tag
-                    pendingTagData = tagData;
+                    // It's a recognized vault tag
+                    stateManager.setTagType(TAG_TYPE.VAULT, serialNumber);
+                    stateManager.setPendingTagData(tagData);
                     
                     // If we have a cached PIN, try to use it automatically
-                    if (cachedPin && !isWritingMode) {
+                    if (stateManager.hasCachedPin()) {
                         try {
-                            const success = await decryptAndLoadTag(pendingTagData, cachedPin);
+                            const success = await decryptAndLoadTag(tagData, stateManager.getCachedPin());
                             if (success) {
                                 // Show edit form
                                 showTagForm(true);
@@ -774,7 +774,7 @@ async function scanTag() {
                             }
                         } catch (error) {
                             // If decryption fails with cached PIN, clear it and continue to PIN prompt
-                            clearPinCache();
+                            stateManager.clearPinCache();
                         }
                     }
                     
@@ -783,9 +783,11 @@ async function scanTag() {
                         // On PIN submit
                         async (pin) => {
                             try {
-                                await decryptAndLoadTag(pendingTagData, pin);
-                                // Show edit form
-                                showTagForm(true);
+                                const success = await decryptAndLoadTag(tagData, pin);
+                                if (success) {
+                                    // Show edit form
+                                    showTagForm(true);
+                                }
                             } catch (error) {
                                 showStatus(`Error: ${error.message}`, true);
                                 showWelcomeScreen();
@@ -793,26 +795,32 @@ async function scanTag() {
                         },
                         // On PIN cancel
                         () => {
-                            pendingTagData = null;
+                            stateManager.setPendingTagData(null);
                             showStatus('Operation cancelled');
                             showWelcomeScreen();
                         }
                     );
+                } else if (message.records && message.records.length > 0) {
+                    // It has content but not in our format
+                    stateManager.setTagType(TAG_TYPE.INVALID, serialNumber);
+                    showStatus('This tag contains data not compatible with NFC Vault. You must clear this tag before using it.', true);
+                    stateManager.finishOperation();
                 } else {
-                    // It's a new tag
-                    showStatus('New tag detected. You can now create content for this tag.');
+                    // It's an empty tag
+                    stateManager.setTagType(TAG_TYPE.EMPTY, serialNumber);
+                    showStatus('New empty tag detected. You can now create content for this tag.');
                     showTagForm(false);
+                    stateManager.finishOperation();
                 }
             } catch (error) {
-                nfcScanAnimation.hide();
                 showStatus(`Error reading tag: ${error.message || error}`, true);
+                stateManager.finishOperation();
                 showWelcomeScreen();
-                await NFC.stopNfcScan();
             }
         },
         (error) => {
-            nfcScanAnimation.hide();
             showStatus(error, true);
+            stateManager.finishOperation();
             showWelcomeScreen();
         },
         'READ' // Specify READ mode
@@ -821,7 +829,7 @@ async function scanTag() {
 
 // Handle form submission (either create or update)
 async function handleTagFormSubmit() {
-    if (appState === 'EDIT_TAG') {
+    if (stateManager.appState === APP_STATE.EDIT_TAG) {
         await updateExistingTag();
     } else {
         await startNFCWrite();
@@ -832,24 +840,15 @@ async function handleTagFormSubmit() {
 function resetFormFields() {
     elements.ownerKey.value = '';
     elements.ownerPin.value = '';
+    elements.newPin.value = '';
     document.getElementById('readersList').innerHTML = '';
     readers = [];
-    
-    // Hide change PIN section in create mode
-    elements.changePinSection.style.display = 'none';
 }
 
-
-
-// Patch NFC.parseVaultTag to handle writing mode
-const originalParseVaultTag = NFC.parseVaultTag(message, isWritingMode);
-NFC.parseVaultTag(message, isWritingMode) = function(message) {
-    // If we're in write mode, don't try to parse the tag
-    if (isWritingMode) {
-        console.log('In write mode, skipping tag parsing');
-        return null;
-    }
-    
-    // Otherwise, use the original function
-    return originalParseVaultTag(message);
+// Export if needed for other modules
+export {
+    stateManager,
+    scanTag,
+    showTagForm,
+    showWelcomeScreen
 };
