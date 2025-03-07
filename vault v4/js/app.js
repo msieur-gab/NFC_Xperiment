@@ -611,9 +611,8 @@ async function performTagUpdate(ownerKey, pin) {
     
     try {
         // Prepare updated tag data structure
-        // const tagData = await prepareTagDataStructure(ownerKey, pin, false);
-        const tagData = NFC.parseVaultTag(message, true);
-
+        const tagData = await prepareTagDataStructure(ownerKey, pin, false);
+        
         // Prepare records for writing
         const records = NFC.prepareTagRecords(tagData);
         
@@ -752,7 +751,7 @@ async function scanTag() {
             
             try {
                 // Try to parse as a vault tag
-                const tagData = NFC.parseVaultTag(message);
+                const tagData = NFC.parseVaultTag(message, isWritingMode);
                 
                 // Hide scanning animation
                 nfcScanAnimation.hide();
@@ -853,7 +852,7 @@ function resetFormFields() {
 // const originalParseVaultTag = NFC.parseVaultTag;
 
 // // Override the function
-// NFC.parseVaultTag = function(message, isWritingMode) {
+// NFC.parseVaultTag = function(message, isWritingMode = false ) {
 //   if (isWritingMode) {
 //     console.log('In write mode, skipping tag parsing');
 //     return null;
