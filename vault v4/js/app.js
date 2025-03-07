@@ -775,7 +775,8 @@ async function scanTag() {
                 
                 // Stop NFC scanning
                 await NFC.stopNfcScan();
-                
+
+                nfcScanAnimation.hide();
                 // Process based on tag type
                 if (tagData) {
                     // It's a recognized vault tag
