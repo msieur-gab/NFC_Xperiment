@@ -59,8 +59,10 @@ class NfcScanAnimation extends HTMLElement {
     const container = this.shadowRoot.querySelector('.nfc-animation');
     if (this._visible) {
       container.classList.add('visible');
+      document.body.style.overflow = 'hidden'; // Prevent scrolling behind overlay
     } else {
       container.classList.remove('visible');
+      document.body.style.overflow = ''; // Restore scrolling
     }
   }
   
@@ -89,22 +91,34 @@ class NfcScanAnimation extends HTMLElement {
         }
         
         .nfc-animation {
-          display: none;
-          text-align: center;
-          padding: 30px;
-          background-color: rgba(37, 99, 235, 0.05);
-          border-radius: 8px;
-          border: 1px solid rgba(37, 99, 235, 0.2);
-          margin: 20px 0;
+          position: fixed;
+          top: 0;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: rgba(0, 0, 0, 0.6);
+          z-index: 10000;
           opacity: 0;
-          transform: translateY(10px);
-          transition: opacity 0.3s, transform 0.3s;
+          pointer-events: none;
+          transition: opacity 0.3s;
         }
         
         .nfc-animation.visible {
-          display: block;
           opacity: 1;
-          transform: translateY(0);
+          pointer-events: auto;
+        }
+        
+        .animation-content {
+          background-color: white;
+          padding: 30px;
+          border-radius: 12px;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2);
+          text-align: center;
+          max-width: 90%;
+          width: 400px;
         }
         
         .pulse-container {
@@ -199,11 +213,6 @@ class NfcScanAnimation extends HTMLElement {
           background-color: rgba(16, 185, 129, 0.2);
         }
         
-        .nfc-animation.write-mode {
-          background-color: rgba(16, 185, 129, 0.05);
-          border: 1px solid rgba(16, 185, 129, 0.2);
-        }
-        
         .nfc-animation.write-mode .scan-text {
           color: #10b981;
         }
@@ -223,11 +232,6 @@ class NfcScanAnimation extends HTMLElement {
           background-color: rgba(239, 68, 68, 0.2);
         }
         
-        .nfc-animation.error-mode {
-          background-color: rgba(239, 68, 68, 0.05);
-          border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        
         .nfc-animation.error-mode .scan-text {
           color: #ef4444;
         }
@@ -243,13 +247,15 @@ class NfcScanAnimation extends HTMLElement {
       </style>
       
       <div class="nfc-animation">
-        <div class="pulse-container">
-          <div class="pulse"></div>
-          <div class="phone-icon"></div>
-        </div>
-        <p class="scan-text">Waiting for NFC tag...</p>
-        <div class="scan-instructions">
-          Bring the NFC tag to the back of your device
+        <div class="animation-content">
+          <div class="pulse-container">
+            <div class="pulse"></div>
+            <div class="phone-icon"></div>
+          </div>
+          <p class="scan-text">Waiting for NFC tag...</p>
+          <div class="scan-instructions">
+            Bring the NFC tag to the back of your device
+          </div>
         </div>
       </div>
     `;

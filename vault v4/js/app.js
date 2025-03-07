@@ -207,19 +207,20 @@ function checkNfcSupport() {
     return supported;
 }
 
-// Show status message with optional toast notification
+// Show status message with optional HTML notification fallback
 function showStatus(message, isError = false) {
-    // Always use standard status display
-    UI.showStatus(message, isError);
-    
-    // Also show toast when available
+    // Use toast only for notifications
     if (toast) {
         if (isError) {
             toast.error(message);
         } else {
             toast.info(message);
         }
+        return; // Don't update HTML status element
     }
+    
+    // Fallback to HTML status only if toast isn't available
+    UI.showStatus(message, isError);
 }
 
 // Generate random owner key
