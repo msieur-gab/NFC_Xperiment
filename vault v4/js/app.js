@@ -646,11 +646,11 @@ async function performTagUpdate(ownerKey, pin) {
                         nfcScanAnimation.hide();
                         
                         // Show success notification
-                        UI.showSuccessNotification(
-                            'Tag Updated Successfully', 
-                            'Your NFC tag has been updated with the new information.'
-                        );
-                        
+                        // UI.showSuccessNotification(
+                        //     'Tag Updated Successfully', 
+                        //     'Your NFC tag has been updated with the new information.'
+                        // );
+                        showStatus('Tag Updated Successfully');
                         // Update current tag data
                         currentTagData = tagData;
                         
