@@ -157,7 +157,7 @@ function handlePinSubmit() {
         hidePinModal();
     } else {
         // Show error
-        showStatus('Please enter a PIN', true);
+        // showStatus('Please enter a PIN', true);
     }
 }
 
@@ -253,7 +253,7 @@ function addReader() {
     
     readers.push({ id: readerId, key: readerKey });
     UI.updateReadersList(readers, 'readersList', removeReader);
-    showStatus(`Reader "${readerId}" added`);
+    // showStatus(`Reader "${readerId}" added`);
 }
 
 // Remove a reader
@@ -263,7 +263,7 @@ function removeReader(index) {
         const readerName = readers[index].id;
         readers.splice(index, 1);
         UI.updateReadersList(readers, 'readersList', removeReader);
-        showStatus(`Reader "${readerName}" removed`);
+        // showStatus(`Reader "${readerName}" removed`);
     }
 }
 
@@ -384,7 +384,7 @@ async function startNFCWrite() {
         
         // Show scanning animation
         nfcScanAnimation.show('write', 'Writing to NFC tag...');
-        showStatus('Please bring the NFC tag to the back of your device to write data');
+        // showStatus('Please bring the NFC tag to the back of your device to write data');
         
         // Start NFC scanning
         await NFC.startNfcScan(
@@ -812,7 +812,7 @@ async function scanTag() {
         },
         (error) => {
             nfcScanAnimation.hide();
-            showStatus(error, true);
+            // showStatus(error, true);
             showWelcomeScreen();
         },
         'READ' // Specify READ mode
