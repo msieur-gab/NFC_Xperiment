@@ -617,17 +617,24 @@ async function performTagUpdate(ownerKey, pin) {
         const records = NFC.prepareTagRecords(tagData);
         console.log('Prepared Records for Writing:', records);
         
+        // Ensure we always have at least 3 records
+        if (records.length < 3) {
+            throw new Error('Insufficient records for NFC tag');
+        }
+        
         currentNfcOperation = 'UPDATING';
         
-        // Ensure any existing NFC scan is properly stopped
+        // Ensure any existing NFC scan is stopped
         try {
-            await NFC.stopNfcScan();
-            console.log('Stopped existing NFC scan');
+            if (typeof ndefReader !== 'undefined' && ndefReader && ndefReader.scanning) {
+                await NFC.stopNfcScan();
+                console.log('Stopped existing NFC scan');
+            }
         } catch (e) {
             console.log('No active NFC scan to stop', e);
         }
         
-        // Wait a moment to ensure the NFC system is reset
+        // Wait a moment to ensure NFC system is reset
         await new Promise(resolve => setTimeout(resolve, 500));
         
         try {
