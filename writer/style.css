@@ -456,3 +456,12 @@ button.danger:hover, button.danger:focus {
     width: auto;
     margin-right: 6px;
 }
+
+
+.modal {
+    display: none;
+  }
+  
+  .modal.active {
+    display: flex;
+  }

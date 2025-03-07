@@ -57,12 +57,15 @@ function initializeComponents() {
     // Get toast notification component
     toast = document.getElementById('toast');
     
-    // Get NFC scan animation component
+    // Get NFC scan animation component - ensure it's correctly cast
     nfcScanAnimation = document.getElementById('scanning-animation');
+    if (!(nfcScanAnimation instanceof NfcScanAnimation)) {
+      console.error('Scanning animation is not a proper custom element');
+    }
     
     // Get PIN input component
     pinInput = document.getElementById('modalPinInput');
-}
+  }
 
 // Initialize element references
 function initializeElements() {
@@ -615,10 +618,10 @@ async function performTagUpdate(ownerKey, pin) {
         
         // Make sure any existing NFC scan is stopped
         try {
-            if (ndefReader) { // This assumes ndefReader is accessible, if not, use NFC.stopNfcScan()
+            // if (ndefReader) { // This assumes ndefReader is accessible, if not, use NFC.stopNfcScan()
                 await NFC.stopNfcScan();
                 console.log('Stopped existing NFC scan');
-            }
+            // }
         } catch (e) {
             console.log('No active NFC scan to stop');
         }
@@ -842,14 +845,14 @@ function resetFormFields() {
 
 
 // Patch NFC.parseVaultTag to handle writing mode
-const originalParseVaultTag = NFC.parseVaultTag(message, isWritingMode);
-NFC.parseVaultTag(message, isWritingMode) = function(message) {
-    // If we're in write mode, don't try to parse the tag
-    if (isWritingMode) {
-        console.log('In write mode, skipping tag parsing');
-        return null;
-    }
-    
-    // Otherwise, use the original function
-    return originalParseVaultTag(message);
+// Store original function
+const originalParseVaultTag = NFC.parseVaultTag;
+
+// Override the function
+NFC.parseVaultTag = function(message, isWritingMode) {
+  if (isWritingMode) {
+    console.log('In write mode, skipping tag parsing');
+    return null;
+  }
+  return originalParseVaultTag(message);
 };
