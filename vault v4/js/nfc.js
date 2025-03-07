@@ -5,6 +5,7 @@
 
 // Store the global NFC reader instance
 let ndefReader = null;
+let currentScanMode = null;
 
 // Check if NFC is supported on the device
 function isNfcSupported() {
@@ -18,24 +19,19 @@ async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
         return false;
     }
     
+    // Stop any existing scan first
+    await stopNfcScan();
+    
     try {
-        // Stop any existing scan
-        if (ndefReader) {
-            try {
-                await stopNfcScan();
-            } catch (stopError) {
-                console.warn('Error stopping previous NFC scan:', stopError);
-            }
-        }
-        
         // Create a new reader
         ndefReader = new NDEFReader();
+        currentScanMode = mode;
         
-        // Modify reading event handler to check current mode
+        // Wrap the reading callback to handle different modes
         const wrappedReadingCallback = (event) => {
-            // If in writing mode, ignore read events
-            if (mode === 'WRITE') {
-                console.log('Ignoring read event during write mode');
+            // If in write mode, only log the event
+            if (currentScanMode === 'WRITE') {
+                console.log('Tag detected in write mode', event);
                 return;
             }
             
@@ -58,6 +54,11 @@ async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
         return true;
     } catch (error) {
         console.error('Error starting NFC scan:', error);
+        
+        // Reset reader state
+        ndefReader = null;
+        currentScanMode = null;
+        
         if (error.name === 'NotAllowedError') {
             errorCallback('NFC permission denied. Make sure NFC is enabled in your device settings.');
         } else if (error.name === 'NotSupportedError') {
@@ -76,23 +77,18 @@ async function stopNfcScan() {
             // Different browsers may implement different methods to stop scanning
             if (typeof ndefReader.stop === 'function') {
                 await ndefReader.stop();
-            } else if (typeof ndefReader.stopScan === 'function') {
-                await ndefReader.stopScan();
             } else if (typeof ndefReader.close === 'function') {
                 await ndefReader.close();
             }
             
-            // Clear event listeners and reset reader
+            // Reset state
             ndefReader = null;
-            return true;
+            currentScanMode = null;
+            console.log('NFC scan stopped successfully');
         } catch (error) {
             console.error('Error stopping NFC scan:', error);
-            // Force reset the reader
-            ndefReader = null;
-            return false;
         }
     }
-    return true;
 }
 
 // Write records to NFC tag
@@ -102,11 +98,11 @@ async function writeNfcTag(records) {
         throw new Error('Insufficient records for NFC tag writing');
     }
 
-    // Ensure NFC reader is initialized
+    // Ensure we're in a valid state for writing
     if (!ndefReader) {
         try {
             ndefReader = new NDEFReader();
-            console.log('NFC reader reinitialized');
+            currentScanMode = 'WRITE';
         } catch (initError) {
             console.error('Failed to initialize NFC reader:', initError);
             throw new Error(`NFC reader initialization failed: ${initError.message}`);
@@ -114,6 +110,12 @@ async function writeNfcTag(records) {
     }
     
     try {
+        // Ensure we're scanning
+        if (currentScanMode !== 'WRITE') {
+            await ndefReader.scan();
+            currentScanMode = 'WRITE';
+        }
+        
         // Write records to tag
         await ndefReader.write({ records });
         console.log('Records successfully written to tag');
@@ -135,6 +137,13 @@ async function writeNfcTag(records) {
             throw new Error('NFC write failed: Unable to communicate with the tag.');
         } else {
             throw new Error(`NFC write failed: ${error.message}`);
+        }
+    } finally {
+        // Always attempt to stop scanning after write
+        try {
+            await stopNfcScan();
+        } catch (stopError) {
+            console.warn('Error stopping NFC scan after write:', stopError);
         }
     }
 }
