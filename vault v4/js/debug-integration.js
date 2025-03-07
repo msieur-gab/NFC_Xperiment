@@ -107,12 +107,15 @@ function logUnhandledErrors() {
 
 // Initialize the debug console when the DOM is ready
 document.addEventListener('DOMContentLoaded', () => {
-  // Only enable in development or when debug=true in URL
-  const urlParams = new URLSearchParams(window.location.search);
-  const debugMode = urlParams.get('debug') === 'true';
+  // Check if debug mode is enabled via global variable
+  const debugMode = 
+    // First check for the global debug variable (set in index.html)
+    (typeof window.DEBUG_MODE !== 'undefined' && window.DEBUG_MODE === true) ||
+    // Fall back to URL parameter
+    (new URLSearchParams(window.location.search).get('debug') === 'true');
   
   // Check if we should initialize debug mode
-  if (debugMode || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+  if (debugMode) {
     // Load debug console component first
     const debugScript = document.createElement('script');
     debugScript.src = 'components/debug-console.js';

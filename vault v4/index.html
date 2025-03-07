@@ -11,8 +11,15 @@
     <script src="components/nfc-scan.js"></script>
     <script src="components/toast.js"></script>
     <script src="components/pin-input.js"></script>
-    <link rel="stylesheet" href="css/debug-console-styles.css">
-<script src="components/debug-console.js"></script>
+    <script>
+        window.DEBUG_MODE = true; // Set to false in production
+    </script>
+    <script>
+        if (window.DEBUG_MODE === true) {
+            document.write('<link rel="stylesheet" href="css/debug-console-styles.css">');
+            document.write('<script src="components/debug-console.js"><\/script>');
+        }
+    </script>
 </head>
 <body>
     <h1>NFC Vault</h1>
@@ -94,13 +101,29 @@
         </div>
     </div>
 
-    <debug-console max-logs="500"></debug-console>
-<script src="js/debug-integration.js"></script>
+
     
     <!-- Toast notification component -->
     <toast-notification id="toast"></toast-notification>
     
     <!-- Import main script as a module -->
     <script type="module" src="js/app.js"></script>
+
+        <!-- Conditionally add debug console and integration -->
+
+    <script>
+        if (window.DEBUG_MODE === true) {
+            // Add debug console element
+            const debugConsole = document.createElement('debug-console');
+            debugConsole.setAttribute('max-logs', '500');
+            document.body.appendChild(debugConsole);
+            
+            // Load debug integration script
+            const script = document.createElement('script');
+            script.src = 'js/debug-integration.js';
+            document.body.appendChild(script);
+        }
+    </script>
+
 </body>
 </html>
