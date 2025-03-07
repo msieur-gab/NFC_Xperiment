@@ -5,6 +5,7 @@
 
 // Store the global NFC reader instance
 let ndefReader = null;
+let currentScanMode = null;
 
 // Check if NFC is supported on the device
 function isNfcSupported() {
@@ -12,21 +13,40 @@ function isNfcSupported() {
 }
 
 // Start NFC scanning
-async function startNfcScan(readingCallback, errorCallback) {
+async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
     if (!isNfcSupported()) {
         errorCallback('NFC not supported on this device or browser');
         return false;
     }
     
     try {
+        // Always stop any existing scan first
         if (ndefReader) {
-            await stopNfcScan();
+            try {
+                await stopNfcScan();
+                // Wait a moment for cleanup
+                await new Promise(resolve => setTimeout(resolve, 300));
+            } catch (e) {
+                console.log('Error stopping previous NFC scan:', e);
+            }
         }
         
+        // Store the current scan mode
+        currentScanMode = mode;
+        console.log(`Starting NFC scan in ${mode} mode`);
+        
+        // Create a new reader
         ndefReader = new NDEFReader();
         
-        // Set up reading event handler
-        ndefReader.addEventListener('reading', readingCallback);
+        // Set up reading event handler with proper mode check
+        ndefReader.addEventListener('reading', (event) => {
+            // Only process if we're in the right mode
+            if (currentScanMode === mode) {
+                readingCallback(event);
+            } else {
+                console.log(`Ignoring NFC event - current mode ${currentScanMode} doesn't match required mode ${mode}`);
+            }
+        });
         
         // Set up error handler
         ndefReader.addEventListener('error', (error) => {
@@ -64,14 +84,20 @@ async function stopNfcScan() {
                 await ndefReader.close();
             }
             
-            // Clear event listeners
+            // Clear the reader and mode
             ndefReader = null;
+            currentScanMode = null;
+            console.log('NFC scan stopped successfully');
             return true;
         } catch (error) {
             console.error('Error stopping NFC scan:', error);
+            // Still clear the reader reference in case of error
+            ndefReader = null;
+            currentScanMode = null;
             return false;
         }
     }
+    console.log('No active NFC scan to stop');
     return true;
 }
 
@@ -82,10 +108,19 @@ async function writeNfcTag(records) {
     }
     
     try {
+        console.log('Writing records to NFC tag...');
         await ndefReader.write({ records });
+        console.log('Successfully wrote to NFC tag');
         return true;
     } catch (error) {
         console.error('Error writing to NFC tag:', error);
+        // Provide more detailed error info
+        let errorInfo = {
+            message: error.message || 'Unknown error',
+            name: error.name,
+            code: error.code
+        };
+        console.error('Write error details:', errorInfo);
         throw error;
     }
 }
@@ -172,9 +207,11 @@ function parseVaultTag(message) {
     
     // Check if we have the minimum required data
     if (!result.metadata || !result.owner) {
+        console.log('Failed to parse vault tag: missing metadata or owner record');
         return null;
     }
     
+    console.log('Successfully parsed vault tag');
     return result;
 }
 
@@ -208,7 +245,18 @@ function prepareTagRecords(tagData) {
         });
     }
     
+    console.log(`Prepared ${records.length} records for writing`);
     return records;
+}
+
+// Get the current scan mode
+function getCurrentScanMode() {
+    return currentScanMode;
+}
+
+// Check if a scan is currently active
+function isScanActive() {
+    return ndefReader !== null;
 }
 
 // Export the functions
@@ -218,5 +266,7 @@ export {
     stopNfcScan,
     writeNfcTag,
     parseVaultTag,
-    prepareTagRecords
+    prepareTagRecords,
+    getCurrentScanMode,
+    isScanActive
 };
