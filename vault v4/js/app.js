@@ -604,6 +604,12 @@ async function updateExistingTag() {
 
 // Perform tag update with given PIN
 async function performTagUpdate(ownerKey, pin) {
+    // Prevent multiple simultaneous operations
+    if (currentNfcOperation !== 'IDLE') {
+        showStatus('Another NFC operation is in progress', true);
+        return;
+    }
+
     isWritingMode = true;
     
     nfcScanAnimation.show('write', 'Updating NFC tag...');
@@ -624,6 +630,22 @@ async function performTagUpdate(ownerKey, pin) {
         
         currentNfcOperation = 'UPDATING';
         
+        // Create a cancellation mechanism
+        let isCancelled = false;
+        const cancelButton = document.getElementById('cancel-button');
+        
+        const cancelHandler = () => {
+            isCancelled = true;
+            currentNfcOperation = 'IDLE';
+            isWritingMode = false;
+            nfcScanAnimation.hide();
+            showStatus('NFC tag update cancelled', true);
+            cancelButton.removeEventListener('click', cancelHandler);
+        };
+        
+        // Temporarily add cancel event listener
+        cancelButton.addEventListener('click', cancelHandler);
+        
         try {
             // Attempt to stop any existing NFC scan
             await NFC.stopNfcScan();
@@ -631,9 +653,41 @@ async function performTagUpdate(ownerKey, pin) {
             console.warn('Error stopping previous NFC scan:', stopError);
         }
         
+        // Set a timeout to prevent indefinite waiting
+        const writeTimeout = setTimeout(() => {
+            if (currentNfcOperation === 'UPDATING') {
+                isCancelled = true;
+                currentNfcOperation = 'IDLE';
+                isWritingMode = false;
+                nfcScanAnimation.hide();
+                showStatus('NFC tag update timed out', true);
+                cancelButton.removeEventListener('click', cancelHandler);
+            }
+        }, 30000); // 30 seconds timeout
+        
         try {
             console.log('Starting NFC write operation');
-            await NFC.writeNfcTag(records);
+            
+            // Wrap write operation with cancellation check
+            const writeOperation = async () => {
+                if (isCancelled) {
+                    throw new Error('NFC operation cancelled');
+                }
+                
+                try {
+                    await NFC.writeNfcTag(records);
+                } catch (error) {
+                    if (isCancelled) {
+                        throw new Error('NFC operation cancelled');
+                    }
+                    throw error;
+                }
+            };
+            
+            await writeOperation();
+            
+            // Clear timeout on success
+            clearTimeout(writeTimeout);
             
             nfcScanAnimation.hide();
             showStatus('Tag Updated Successfully');
@@ -643,7 +697,13 @@ async function performTagUpdate(ownerKey, pin) {
             isWritingMode = false;
             
             pendingTagData = null;
+            
+            // Remove cancel event listener
+            cancelButton.removeEventListener('click', cancelHandler);
         } catch (error) {
+            // Clear timeout on error
+            clearTimeout(writeTimeout);
+            
             console.error('NFC Write Error:', error);
             
             nfcScanAnimation.hide();
@@ -651,15 +711,18 @@ async function performTagUpdate(ownerKey, pin) {
             
             currentNfcOperation = 'IDLE';
             isWritingMode = false;
+            
+            // Remove cancel event listener
+            cancelButton.removeEventListener('click', cancelHandler);
         }
     } catch (error) {
         console.error('Prepare Tag Data Error:', error);
         nfcScanAnimation.hide();
         showStatus(`Error preparing tag data: ${error.message || error}`, true);
         isWritingMode = false;
+        currentNfcOperation = 'IDLE';
     }
 }
-
 // Show welcome/onboarding screen
 function showWelcomeScreen() {
     appState = 'WELCOME';

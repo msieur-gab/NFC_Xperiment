@@ -98,54 +98,67 @@ async function writeNfcTag(records) {
         throw new Error('Insufficient records for NFC tag writing');
     }
 
-    // Ensure we're in a valid state for writing
-    if (!ndefReader) {
+    // Track write attempts
+    let writeAttempts = 0;
+    const MAX_WRITE_ATTEMPTS = 3;
+
+    while (writeAttempts < MAX_WRITE_ATTEMPTS) {
         try {
-            ndefReader = new NDEFReader();
-            currentScanMode = 'WRITE';
-        } catch (initError) {
-            console.error('Failed to initialize NFC reader:', initError);
-            throw new Error(`NFC reader initialization failed: ${initError.message}`);
+            // Ensure we're in a valid state for writing
+            if (!ndefReader) {
+                ndefReader = new NDEFReader();
+                currentScanMode = 'WRITE';
+            }
+            
+            // Ensure we're scanning
+            if (currentScanMode !== 'WRITE') {
+                await ndefReader.scan();
+                currentScanMode = 'WRITE';
+            }
+            
+            // Write records to tag
+            await ndefReader.write({ records });
+            console.log('Records successfully written to tag');
+            
+            return true;
+        } catch (error) {
+            writeAttempts++;
+            console.warn(`Write attempt ${writeAttempts} failed:`, error);
+            
+            // Reset reader for next attempt
+            try {
+                await stopNfcScan();
+            } catch (stopError) {
+                console.error('Error stopping scan:', stopError);
+            }
+            
+            // If it's the last attempt, throw the error
+            if (writeAttempts >= MAX_WRITE_ATTEMPTS) {
+                console.error('Detailed Write Tag Error:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
+                
+                // More specific error handling
+                if (error.name === 'NotAllowedError') {
+                    throw new Error('NFC permission denied. Check device settings.');
+                } else if (error.name === 'NotSupportedError') {
+                    throw new Error('NFC writing not supported on this device.');
+                } else if (error.name === 'NetworkError') {
+                    throw new Error('NFC write failed: Unable to communicate with the tag.');
+                } else {
+                    throw new Error(`NFC write failed: ${error.message}`);
+                }
+            }
+            
+            // Wait a moment before retrying
+            await new Promise(resolve => setTimeout(resolve, 500));
         }
     }
     
-    try {
-        // Ensure we're scanning
-        if (currentScanMode !== 'WRITE') {
-            await ndefReader.scan();
-            currentScanMode = 'WRITE';
-        }
-        
-        // Write records to tag
-        await ndefReader.write({ records });
-        console.log('Records successfully written to tag');
-        
-        return true;
-    } catch (error) {
-        console.error('Detailed Write Tag Error:', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack
-        });
-        
-        // More specific error handling
-        if (error.name === 'NotAllowedError') {
-            throw new Error('NFC permission denied. Check device settings.');
-        } else if (error.name === 'NotSupportedError') {
-            throw new Error('NFC writing not supported on this device.');
-        } else if (error.name === 'NetworkError') {
-            throw new Error('NFC write failed: Unable to communicate with the tag.');
-        } else {
-            throw new Error(`NFC write failed: ${error.message}`);
-        }
-    } finally {
-        // Always attempt to stop scanning after write
-        try {
-            await stopNfcScan();
-        } catch (stopError) {
-            console.warn('Error stopping NFC scan after write:', stopError);
-        }
-    }
+    // Fallback error (should not reach here)
+    throw new Error('Maximum NFC write attempts exceeded');
 }
 
 // Extract all text records from NDEF message
