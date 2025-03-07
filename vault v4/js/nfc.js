@@ -141,15 +141,24 @@ function extractUrl(message) {
 }
 
 // Parse NFC data structure from message
- function parseVaultTag(message, isWritingMode = false) {
-    // If we're in write mode, don't try to parse the tag
+function parseVaultTag(message, isWritingMode = false) {
+    console.log('Parsing Vault Tag - Writing Mode:', isWritingMode);
+    
     if (isWritingMode === true) {
         console.log('In write mode, skipping tag parsing');
         return null;
     }
 
-    if (!message || !message.records || message.records.length < 3) {
-        return null; // Need at least URL, metadata, and owner
+    if (!message || !message.records) {
+        console.log('No records in message');
+        return null;
+    }
+
+    console.log('Number of records:', message.records.length);
+    
+    if (message.records.length < 3) {
+        console.log('Not enough records (need at least 3)');
+        return null;
     }
     
     const result = {
@@ -161,26 +170,35 @@ function extractUrl(message) {
     
     // Extract service URL
     result.serviceUrl = extractUrl(message);
+    console.log('Extracted Service URL:', result.serviceUrl);
     
     // Extract text records
     const textRecords = extractTextRecords(message);
+    console.log('Extracted Text Records:', textRecords);
     
     // Find and categorize records
     for (const record of textRecords) {
+        console.log('Processing record:', record);
+        
         if (record.version && record.iv) {
             result.metadata = record;
+            console.log('Metadata found:', result.metadata);
         } else if (record.t === 'o') {
             result.owner = record;
+            console.log('Owner record found:', result.owner);
         } else if (record.t === 'r') {
             result.readers.push(record);
+            console.log('Reader record found:', record);
         }
     }
     
     // Check if we have the minimum required data
     if (!result.metadata || !result.owner) {
+        console.log('Missing metadata or owner record');
         return null;
     }
     
+    console.log('Final parsed result:', result);
     return result;
 }
 
