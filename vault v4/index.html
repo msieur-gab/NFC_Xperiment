@@ -11,15 +11,8 @@
     <script src="components/toast.js"></script>
     <script src="components/pin-input.js"></script>
     <script src="components/nfc-scan.js"></script>
-    <script>
-        window.DEBUG_MODE = true; // Set to false in production
-    </script>
-    <script>
-        if (window.DEBUG_MODE === true) {
-            document.write('<link rel="stylesheet" href="css/debug-console-styles.css">');
-            document.write('<script src="components/debug-console.js"><\/script>');
-        }
-    </script>
+    <script src="components/debug-console.js"></script>
+
 </head>
 <body>
     <h1>NFC Vault</h1>
@@ -110,31 +103,17 @@
     <!-- Toast notification component -->
     <toast-notification id="toast" position="top"></toast-notification>
     
+
+    <enhanced-debug-console 
+    max-logs="500"
+    auto-init
+    debug-mode>
+</enhanced-debug-console>
+
     <!-- Import main script as a module -->
     <script type="module" src="js/app.js"></script>
 
     <!-- Conditionally add debug console -->
-    <script>
-        if (window.DEBUG_MODE === true) {
-            // Add debug console element after a short delay to ensure DOM is ready
-            setTimeout(() => {
-                try {
-                    // Create debug console element
-                    const debugConsole = document.createElement('debug-console');
-                    debugConsole.setAttribute('max-logs', '500');
-                    document.body.appendChild(debugConsole);
-                    
-                    // Load debug integration script
-                    const script = document.createElement('script');
-                    script.src = 'js/debug-integration.js';
-                    document.body.appendChild(script);
-                    
-                    console.log('Debug console initialized');
-                } catch (error) {
-                    console.error('Error setting up debug console:', error);
-                }
-            }, 100);
-        }
-    </script>
+
 </body>
 </html>
