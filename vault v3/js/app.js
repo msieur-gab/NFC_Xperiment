@@ -442,7 +442,7 @@ function initializeApp() {
     
     if (action === 'read') {
         // Start scanning immediately
-        showStatus('Tag detected, scanning...');
+        // showStatus('Tag detected, scanning...');
         scanTag();
     } else {
         // Show welcome screen
@@ -641,10 +641,12 @@ async function performTagUpdate(ownerKey, pin) {
                         nfcScanAnimation.hide();
                         
                         // Show success notification
-                        UI.showSuccessNotification(
-                            'Tag Updated Successfully', 
-                            'Your NFC tag has been updated with the new information.'
-                        );
+                        toast.success('Tag Updated Successfully');
+
+                        // UI.showSuccessNotification(
+                        //     'Tag Updated Successfully', 
+                        //     'Your NFC tag has been updated with the new information.'
+                        // );
                         
                         // Update current tag data
                         currentTagData = tagData;
