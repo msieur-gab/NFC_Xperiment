@@ -33,38 +33,65 @@ let currentCancelCallback = null;
 
 // Initialize the app
 document.addEventListener('DOMContentLoaded', () => {
-    // Initialize DOM elements first
-    initializeElements();
+    try {
+        // Initialize DOM elements first
+        initializeElements();
+        
+        // Initialize custom components 
+        initializeComponents();
+        
+        // Set up password toggle buttons
+        UI.setupPasswordToggles();
+        
+        // Wait a moment for custom elements to be fully defined
+        setTimeout(() => {
+            try {
+                // Set up event listeners after elements are ready
+                setupEventListeners();
+                
+                // Check NFC support
+                checkNfcSupport();
     
-    // Initialize custom components 
-    initializeComponents();
-    
-    // Set up event listeners
-    setupEventListeners();
-    
-    // Set up password toggle buttons
-    UI.setupPasswordToggles();
-    
-    // Wait a moment for custom elements to be fully defined
-    setTimeout(() => {
-        // Check NFC support
-        checkNfcSupport();
-
-        // Initialize app state
-        initializeApp();
-    }, 50);
+                // Initialize app state
+                initializeApp();
+            } catch (error) {
+                console.error("Error during delayed initialization:", error);
+            }
+        }, 100);
+    } catch (error) {
+        console.error("Error during initialization:", error);
+    }
 });
 
 // Initialize custom components
 function initializeComponents() {
-    // Get toast notification component
-    toast = document.getElementById('toast');
-    
-    // Get NFC scan animation component
-    nfcScanAnimation = document.getElementById('scanning-animation');
-    
-    // Get PIN input component
-    pinInput = document.getElementById('modalPinInput');
+    try {
+        // Get toast notification component - added null check
+        const toastElement = document.getElementById('toast');
+        if (toastElement) {
+            toast = toastElement;
+        } else {
+            console.warn("Toast component not found in DOM");
+        }
+        
+        // Get NFC scan animation component
+        const scanAnimation = document.getElementById('scanning-animation');
+        if (scanAnimation) {
+            nfcScanAnimation = scanAnimation;
+        } else {
+            console.warn("Scanning animation component not found in DOM");
+        }
+        
+        // Get PIN input component
+        const pinInputElement = document.getElementById('modalPinInput');
+        if (pinInputElement) {
+            pinInput = pinInputElement;
+        } else {
+            console.warn("PIN input component not found in DOM");
+        }
+    } catch (error) {
+        console.error("Error initializing components:", error);
+    }
 }
 
 // Initialize element references
@@ -94,11 +121,28 @@ function setupEventListeners() {
     // Reader management
     document.getElementById('add-reader').addEventListener('click', addReader);
     
-    // Tag operations
-    elements.submitButton.addEventListener('click', handleTagFormSubmit);
-    elements.showPreviewButton.addEventListener('click', showTagPreview);
-    elements.scanButton.addEventListener('click', scanTag);
-    elements.cancelButton.addEventListener('click', showWelcomeScreen);
+    // Tag operations - making sure elements and functions exist before adding listeners
+    if (elements.submitButton) {
+        elements.submitButton.addEventListener('click', function() {
+            if (appState === 'EDIT_TAG') {
+                updateExistingTag();
+            } else {
+                startNFCWrite();
+            }
+        });
+    }
+    
+    if (elements.showPreviewButton) {
+        elements.showPreviewButton.addEventListener('click', showTagPreview);
+    }
+    
+    if (elements.scanButton) {
+        elements.scanButton.addEventListener('click', scanTag);
+    }
+    
+    if (elements.cancelButton) {
+        elements.cancelButton.addEventListener('click', showWelcomeScreen);
+    }
     
     // Set up the PIN modal handlers
     setupPinModalHandlers();
@@ -492,8 +536,10 @@ async function startNFCWrite() {
         // Start NFC operation
         currentNfcOperation = 'WRITING';
         
-        // Show scanning animation
-        nfcScanAnimation.show('write', 'Writing to NFC tag...');
+        // Show scanning animation if available
+        if (nfcScanAnimation && typeof nfcScanAnimation.show === 'function') {
+            nfcScanAnimation.show('write', 'Writing to NFC tag...');
+        }
         showStatus('Please bring the NFC tag to the back of your device to write data');
         
         // Start NFC scanning
@@ -505,8 +551,10 @@ async function startNFCWrite() {
                     // Write records to tag
                     await NFC.writeNfcTag(records);
                     
-                    // Hide scanning animation
-                    nfcScanAnimation.hide();
+                    // Hide scanning animation if available
+                    if (nfcScanAnimation && typeof nfcScanAnimation.hide === 'function') {
+                        nfcScanAnimation.hide();
+                    }
                     
                     // Show success notification
                     UI.showSuccessNotification(
@@ -725,8 +773,10 @@ async function performTagUpdate(ownerKey, pin) {
         // Start NFC operation
         currentNfcOperation = 'UPDATING';
         
-        // Show scanning animation
-        nfcScanAnimation.show('write', 'Updating NFC tag...');
+        // Show scanning animation if available
+        if (nfcScanAnimation && typeof nfcScanAnimation.show === 'function') {
+            nfcScanAnimation.show('write', 'Updating NFC tag...');
+        }
         showStatus('Please bring the same NFC tag to the back of your device');
         
         // Make sure any existing NFC scan is stopped
@@ -757,8 +807,10 @@ async function performTagUpdate(ownerKey, pin) {
                         // Write records to tag
                         await NFC.writeNfcTag(records);
                         
-                        // Hide scanning animation
-                        nfcScanAnimation.hide();
+                        // Hide scanning animation if available
+                        if (nfcScanAnimation && typeof nfcScanAnimation.hide === 'function') {
+                            nfcScanAnimation.hide();
+                        }
                         
                         // Show success notification
                         UI.showSuccessNotification(
@@ -852,8 +904,10 @@ async function scanTag() {
             return;
         }
         
-        // Show scanning animation
-        nfcScanAnimation.show('scan', 'Scanning NFC tag...');
+        // Show scanning animation if available
+        if (nfcScanAnimation && typeof nfcScanAnimation.show === 'function') {
+            nfcScanAnimation.show('scan', 'Scanning NFC tag...');
+        }
         showStatus('Please bring the NFC tag to the back of your device');
         
         // Start NFC scanning with READ mode

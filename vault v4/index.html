@@ -7,10 +7,10 @@
     <link rel="stylesheet" href="css/styles.css">
     <!-- CryptoJS Library -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
-    <!-- Custom Components -->
-    <script src="components/nfc-scan.js"></script>
+    <!-- Load Custom Components First -->
     <script src="components/toast.js"></script>
     <script src="components/pin-input.js"></script>
+    <script src="components/nfc-scan.js"></script>
     <script>
         window.DEBUG_MODE = true; // Set to false in production
     </script>
@@ -81,8 +81,14 @@
         <div id="preview-content"></div>
     </div>
     
-    <!-- Scanning Animation using custom component -->
-    <nfc-scan-animation id="scanning-animation"></nfc-scan-animation>
+    <!-- Scanning Animation -->
+    <div id="scanning-animation" class="scanning-animation">
+        <div class="pulse"></div>
+        <p id="scan-message">Waiting for NFC tag...</p>
+        <div class="scan-instructions">
+            Bring the NFC tag to the back of your device
+        </div>
+    </div>
     
     <!-- PIN Modal -->
     <div id="pin-modal" class="modal">
@@ -100,8 +106,6 @@
             </div>
         </div>
     </div>
-
-
     
     <!-- Toast notification component -->
     <toast-notification id="toast" position="top"></toast-notification>
@@ -109,21 +113,28 @@
     <!-- Import main script as a module -->
     <script type="module" src="js/app.js"></script>
 
-        <!-- Conditionally add debug console and integration -->
-
-    <!-- <script>
+    <!-- Conditionally add debug console -->
+    <script>
         if (window.DEBUG_MODE === true) {
-            // Add debug console element
-            const debugConsole = document.createElement('debug-console');
-            debugConsole.setAttribute('max-logs', '500');
-            document.body.appendChild(debugConsole);
-            
-            // Load debug integration script
-            const script = document.createElement('script');
-            script.src = 'js/debug-integration.js';
-            document.body.appendChild(script);
+            // Add debug console element after a short delay to ensure DOM is ready
+            setTimeout(() => {
+                try {
+                    // Create debug console element
+                    const debugConsole = document.createElement('debug-console');
+                    debugConsole.setAttribute('max-logs', '500');
+                    document.body.appendChild(debugConsole);
+                    
+                    // Load debug integration script
+                    const script = document.createElement('script');
+                    script.src = 'js/debug-integration.js';
+                    document.body.appendChild(script);
+                    
+                    console.log('Debug console initialized');
+                } catch (error) {
+                    console.error('Error setting up debug console:', error);
+                }
+            }, 100);
         }
-    </script> -->
-
+    </script>
 </body>
 </html>
