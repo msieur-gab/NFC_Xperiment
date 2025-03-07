@@ -619,6 +619,7 @@ async function performTagUpdate(ownerKey, pin) {
         
         currentNfcOperation = 'UPDATING';
         
+        // Ensure any existing NFC scan is properly stopped
         try {
             await NFC.stopNfcScan();
             console.log('Stopped existing NFC scan');
@@ -626,6 +627,7 @@ async function performTagUpdate(ownerKey, pin) {
             console.log('No active NFC scan to stop', e);
         }
         
+        // Wait a moment to ensure the NFC system is reset
         await new Promise(resolve => setTimeout(resolve, 500));
         
         try {

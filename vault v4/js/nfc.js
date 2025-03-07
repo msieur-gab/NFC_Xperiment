@@ -64,18 +64,19 @@ async function stopNfcScan() {
                 await ndefReader.close();
             }
             
-            // Clear event listeners
+            // Clear event listeners and reset reader
             ndefReader = null;
             return true;
         } catch (error) {
             console.error('Error stopping NFC scan:', error);
+            // Force reset the reader
+            ndefReader = null;
             return false;
         }
     }
     return true;
 }
 
-// Write records to NFC tag
 // Write records to NFC tag
 async function writeNfcTag(records) {
     // Ensure NFC reader is initialized
@@ -91,12 +92,18 @@ async function writeNfcTag(records) {
     }
     
     try {
-        // Ensure the reader is ready
+        // Ensure the reader is ready and scanning
         await ndefReader.scan();
         console.log('NFC scan started before writing');
         
+        // Prepare write options
+        const writeOptions = { 
+            records: records,
+            overwrite: true  // Attempt to overwrite existing records
+        };
+        
         // Write records to tag
-        await ndefReader.write({ records });
+        await ndefReader.write(writeOptions);
         console.log('Records successfully written to tag');
         
         return true;
@@ -112,6 +119,8 @@ async function writeNfcTag(records) {
             throw new Error('NFC permission denied. Check device settings.');
         } else if (error.name === 'NotSupportedError') {
             throw new Error('NFC writing not supported on this device.');
+        } else if (error.name === 'NetworkError') {
+            throw new Error('NFC write failed: Unable to communicate with the tag.');
         } else {
             throw new Error(`NFC write failed: ${error.message}`);
         }
