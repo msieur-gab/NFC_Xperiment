@@ -5,7 +5,6 @@
 
 // Store the global NFC reader instance
 let ndefReader = null;
-let currentScanMode = null;
 
 // Check if NFC is supported on the device
 function isNfcSupported() {
@@ -13,40 +12,21 @@ function isNfcSupported() {
 }
 
 // Start NFC scanning
-async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
+async function startNfcScan(readingCallback, errorCallback) {
     if (!isNfcSupported()) {
         errorCallback('NFC not supported on this device or browser');
         return false;
     }
     
     try {
-        // Always stop any existing scan first
         if (ndefReader) {
-            try {
-                await stopNfcScan();
-                // Wait a moment for cleanup
-                await new Promise(resolve => setTimeout(resolve, 300));
-            } catch (e) {
-                console.log('Error stopping previous NFC scan:', e);
-            }
+            await stopNfcScan();
         }
         
-        // Store the current scan mode
-        currentScanMode = mode;
-        console.log(`Starting NFC scan in ${mode} mode`);
-        
-        // Create a new reader
         ndefReader = new NDEFReader();
         
-        // Set up reading event handler with proper mode check
-        ndefReader.addEventListener('reading', (event) => {
-            // Only process if we're in the right mode
-            if (currentScanMode === mode) {
-                readingCallback(event);
-            } else {
-                console.log(`Ignoring NFC event - current mode ${currentScanMode} doesn't match required mode ${mode}`);
-            }
-        });
+        // Set up reading event handler
+        ndefReader.addEventListener('reading', readingCallback);
         
         // Set up error handler
         ndefReader.addEventListener('error', (error) => {
@@ -71,41 +51,27 @@ async function startNfcScan(readingCallback, errorCallback, mode = 'READ') {
     }
 }
 
-// Stop NFC scanning (fixed version)
+// Stop NFC scanning
 async function stopNfcScan() {
     if (ndefReader) {
         try {
             // Different browsers may implement different methods to stop scanning
             if (typeof ndefReader.stop === 'function') {
-                try {
-                    await ndefReader.stop();
-                } catch (e) {
-                    console.log('Error calling ndefReader.stop():', e);
-                }
+                await ndefReader.stop();
             } else if (typeof ndefReader.stopScan === 'function') {
-                try {
-                    await ndefReader.stopScan();
-                } catch (e) {
-                    console.log('Error calling ndefReader.stopScan():', e);
-                }
+                await ndefReader.stopScan();
             } else if (typeof ndefReader.close === 'function') {
-                try {
-                    await ndefReader.close();
-                } catch (e) {
-                    console.log('Error calling ndefReader.close():', e);
-                }
+                await ndefReader.close();
             }
+            
+            // Clear event listeners
+            ndefReader = null;
+            return true;
         } catch (error) {
             console.error('Error stopping NFC scan:', error);
-        } finally {
-            // Always clear the reader reference and mode to prevent stale state
-            ndefReader = null;
-            currentScanMode = null;
-            console.log('NFC reader reference cleared');
+            return false;
         }
-        return true;
     }
-    console.log('No active NFC scan to stop');
     return true;
 }
 
@@ -116,19 +82,10 @@ async function writeNfcTag(records) {
     }
     
     try {
-        console.log('Writing records to NFC tag...');
         await ndefReader.write({ records });
-        console.log('Successfully wrote to NFC tag');
         return true;
     } catch (error) {
         console.error('Error writing to NFC tag:', error);
-        // Provide more detailed error info
-        let errorInfo = {
-            message: error.message || 'Unknown error',
-            name: error.name,
-            code: error.code
-        };
-        console.error('Write error details:', errorInfo);
         throw error;
     }
 }
@@ -215,11 +172,9 @@ function parseVaultTag(message) {
     
     // Check if we have the minimum required data
     if (!result.metadata || !result.owner) {
-        console.log('Failed to parse vault tag: missing metadata or owner record');
         return null;
     }
     
-    console.log('Successfully parsed vault tag');
     return result;
 }
 
@@ -253,18 +208,7 @@ function prepareTagRecords(tagData) {
         });
     }
     
-    console.log(`Prepared ${records.length} records for writing`);
     return records;
-}
-
-// Get the current scan mode
-function getCurrentScanMode() {
-    return currentScanMode;
-}
-
-// Check if a scan is currently active
-function isScanActive() {
-    return ndefReader !== null;
 }
 
 // Export the functions
@@ -274,7 +218,5 @@ export {
     stopNfcScan,
     writeNfcTag,
     parseVaultTag,
-    prepareTagRecords,
-    getCurrentScanMode,
-    isScanActive
+    prepareTagRecords
 };
