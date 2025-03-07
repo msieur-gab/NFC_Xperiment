@@ -624,12 +624,10 @@ async function performTagUpdate(ownerKey, pin) {
         
         currentNfcOperation = 'UPDATING';
         
-        // Ensure any existing NFC scan is stopped
+        // Ensure any existing NFC scan is completely stopped
         try {
-            if (typeof ndefReader !== 'undefined' && ndefReader && ndefReader.scanning) {
-                await NFC.stopNfcScan();
-                console.log('Stopped existing NFC scan');
-            }
+            await NFC.stopNfcScan();
+            console.log('Stopped existing NFC scan');
         } catch (e) {
             console.log('No active NFC scan to stop', e);
         }
@@ -652,6 +650,7 @@ async function performTagUpdate(ownerKey, pin) {
                         
                         currentTagData = tagData;
                         
+                        // Stop scanning after successful write
                         await NFC.stopNfcScan();
                         
                         currentNfcOperation = 'IDLE';
@@ -685,7 +684,7 @@ async function performTagUpdate(ownerKey, pin) {
                     currentNfcOperation = 'IDLE';
                     isWritingMode = false;
                 },
-                'WRITE'
+                'WRITE' // Explicitly set write mode
             );
         } catch (error) {
             console.error('Start NFC Scan Error:', error);
